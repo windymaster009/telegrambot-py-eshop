@@ -33,7 +33,8 @@ balances stay consistent.
 ## Security first
 
 If a bot token, MongoDB URI, or API key is posted in chat or a screenshot, rotate it immediately.
-Never commit `.env`, the payment QR, or stock credentials. The repository ignores all of them.
+Never commit `.env` or stock credentials. The branded payment poster is customer-facing and is
+included intentionally so every deployment uses the same QR.
 
 Use MongoDB Atlas **Database Access** to create a dedicated application user. Add only the server's
 required address under **Network Access**. Do not put the URI in frontend JavaScript.
@@ -76,8 +77,8 @@ PAYMENT_ACCOUNT_NUMBER=YOUR ACCOUNT NUMBER
 PAYMENT_EXPIRY_MINUTES=30
 ```
 
-Both `ADMIN_IDS=123,456` and `ADMIN_IDS=[123,456]` work. Put the real QR image at
-`assets/payment_qr.png`.
+Both `ADMIN_IDS=123,456` and `ADMIN_IDS=[123,456]` work. The bundled poster at
+`assets/payment_qr.png` is sent for both product payments and wallet deposits.
 
 This MongoDB version starts with a fresh Atlas database. The old SQLite `shop.db` is not read by the
 application.
