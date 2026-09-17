@@ -26,8 +26,12 @@ def listener_settings() -> SimpleNamespace:
     )
 
 
-async def test_listener_ignores_wrong_group_and_sender() -> None:
-    service = SimpleNamespace(process_aba_topup=AsyncMock())
+async def test_listener_ignores_wrong_group_but_scans_matching_text_from_any_sender() -> None:
+    service = SimpleNamespace(
+        process_aba_topup=AsyncMock(
+            return_value=SimpleNamespace(duplicate=True, deposit=None)
+        )
+    )
     shop_bot = SimpleNamespace()
     check_bot = SimpleNamespace(send_message=AsyncMock())
 
@@ -38,27 +42,21 @@ async def test_listener_ignores_wrong_group_and_sender() -> None:
         shop_bot,
         check_bot,
     )
+    human_message = aba_message(chat_id=-100777, username="payment_admin")
+    human_message.from_user.is_bot = False
     await receive_aba_notification(
-        aba_message(chat_id=-100777, username="not_the_aba_bot"),
-        service,
-        listener_settings(),
-        shop_bot,
-        check_bot,
-    )
-    forwarded = aba_message(chat_id=-100777)
-    forwarded.from_user = SimpleNamespace(username="admin", id=123, is_bot=False)
-    forwarded.forward_origin = SimpleNamespace(
-        sender_user=SimpleNamespace(username="PayWayByABA_bot", id=777, is_bot=True)
-    )
-    await receive_aba_notification(
-        forwarded,
+        human_message,
         service,
         listener_settings(),
         shop_bot,
         check_bot,
     )
 
-    service.process_aba_topup.assert_not_awaited()
+    service.process_aba_topup.assert_awaited_once()
+    scanned = service.process_aba_topup.await_args.args[0]
+    assert scanned.amount_minor == 1007
+    assert scanned.transaction_id == "123456789"
+    assert scanned.payer_name == "TEST CUSTOMER"
     check_bot.send_message.assert_not_awaited()
 
 
@@ -87,10 +85,13 @@ async def test_listener_notifies_customer_and_group_after_match() -> None:
     confirmation = check_bot.send_message.await_args.args[1]
     assert "TOPUP-7" in confirmation
     assert "$10.07" in confirmation
+    assert "TEST CUSTOMER" in confirmation
+    assert "Sep 17" in confirmation
     assert "123456789" in confirmation
+    assert "445566" in confirmation
 
 
-async def test_listener_status_reports_group_permissions_and_botfather_check() -> None:
+async def test_listener_status_reports_group_permissions_and_text_scan_mode() -> None:
     check_bot = SimpleNamespace(
         get_me=AsyncMock(
             return_value=SimpleNamespace(
@@ -107,4 +108,4 @@ async def test_listener_status_reports_group_permissions_and_botfather_check() -
     status = await _listener_status(check_bot, listener_settings())
 
     assert "Group-message access: <b>ready</b>" in status
-    assert "verify in BotFather" in status
+    assert "Reader mode: <b>ABA text scan</b>" in status

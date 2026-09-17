@@ -18,6 +18,7 @@ def test_parses_current_english_aba_notification() -> None:
     assert payment.channel == "ABA PAY"
     assert payment.merchant == "MeeS by K.NHIM"
     assert payment.apv == "886284"
+    assert payment.paid_at_text == "Sep 17, 10:46 PM"
 
 
 def test_parses_five_cent_payment_from_production_screenshot() -> None:
@@ -30,6 +31,9 @@ def test_parses_five_cent_payment_from_production_screenshot() -> None:
     assert payment.amount_minor == 5
     assert payment.transaction_id == "178966354995635"
     assert payment.payer_name == "MEAS PUTTHYVIREAK"
+    assert payment.payer_account == "*565"
+    assert payment.paid_at_text == "Sep 17, 11:45 PM"
+    assert payment.apv == "305256"
 
 
 def test_parses_older_transaction_number_wording() -> None:

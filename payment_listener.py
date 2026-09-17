@@ -29,18 +29,6 @@ def _normalized_username(user: object | None) -> str:
     return str(username).removeprefix("@").lower()
 
 
-def _trusted_bot_sender(message: Message, expected_username: str) -> object | None:
-    """Return the exact direct bot sender; forwarded payment posts are never auto-credited."""
-    direct_sender = message.from_user
-    if (
-        direct_sender is not None
-        and bool(getattr(direct_sender, "is_bot", False))
-        and _normalized_username(direct_sender) == expected_username
-    ):
-        return direct_sender
-    return None
-
-
 def _payment_summary(payment: AbaPayment) -> str:
     if payment.currency == "USD":
         return format_money(payment.amount_minor)
@@ -77,9 +65,8 @@ async def _listener_status(check_bot: Bot, settings: Settings) -> str:
         f"Group membership: <b>{escape(member_status)}</b>\n"
         f"Group privacy: <b>{'disabled' if privacy_disabled else 'enabled'}</b>\n"
         f"Group-message access: <b>{'ready' if permissions_ready else 'not ready'}</b>\n"
-        f"Expected ABA bot: @{escape(settings.aba_payment_bot_username)}\n"
-        "Bot-to-Bot mode: <b>verify in BotFather</b> (Telegram does not expose this setting "
-        "through the Bot API)."
+        "Reader mode: <b>ABA text scan</b>\n"
+        "Every ABA-formatted text or caption received from this configured group is scanned."
     )
 
 
@@ -103,30 +90,18 @@ async def receive_aba_notification(
         return
     if message.chat.id != settings.aba_payment_group_id:
         return
-    sender = _trusted_bot_sender(message, settings.aba_payment_bot_username)
-    if sender is None:
-        direct_sender = message.from_user or message.sender_chat
-        logger.warning(
-            "Ignored message %s in the ABA group from username=%r id=%r is_bot=%r; "
-            "expected @%s",
-            getattr(message, "message_id", "unknown"),
-            _normalized_username(direct_sender),
-            getattr(direct_sender, "id", None),
-            getattr(direct_sender, "is_bot", None),
-            settings.aba_payment_bot_username,
-        )
-        return
 
     payment = parse_aba_payment(message.text or message.caption)
     if payment is None:
-        logger.warning("Ignored an unrecognized ABA notification in chat %s", message.chat.id)
         return
 
+    sender = message.from_user or message.sender_chat
+    sender_label = _normalized_username(sender) or str(getattr(sender, "id", "unknown"))
     logger.info(
-        "Received ABA transaction %s for %s from trusted bot @%s",
+        "Scanned ABA transaction %s for %s from message sender %s",
         payment.transaction_id,
         _payment_summary(payment),
-        _normalized_username(sender),
+        sender_label,
     )
 
     result = await service.process_aba_topup(payment)
@@ -140,7 +115,9 @@ async def receive_aba_notification(
             "⚠️ <b>ABA payment received, but no active top-up matched</b>\n"
             f"Amount: <b>{_payment_summary(payment)}</b>\n"
             f"Payer: {escape(payment.payer_name)} ({escape(payment.payer_account)})\n"
-            f"Transaction: <code>{escape(payment.transaction_id)}</code>",
+            f"Paid at: {escape(payment.paid_at_text or 'not provided')}\n"
+            f"Transaction: <code>{escape(payment.transaction_id)}</code>\n"
+            f"APV: <code>{escape(payment.apv or 'not provided')}</code>",
         )
         return
 
@@ -161,7 +138,10 @@ async def receive_aba_notification(
         f"Queue: <code>TOPUP-{deposit.id}</code>\n"
         f"User ID: <code>{deposit.user_id}</code>\n"
         f"Amount credited: <b>{format_money(deposit.amount_cents)}</b>\n"
+        f"Payer: {escape(payment.payer_name)} ({escape(payment.payer_account)})\n"
+        f"Paid at: {escape(payment.paid_at_text or 'not provided')}\n"
         f"ABA transaction: <code>{escape(payment.transaction_id)}</code>\n"
+        f"APV: <code>{escape(payment.apv or 'not provided')}</code>\n"
         f"Customer notification: {customer_notice}",
     )
 
@@ -218,9 +198,8 @@ async def main() -> None:
         status = await _listener_status(check_bot, settings)
         logger.info("Payment listener diagnostics:\n%s", status)
         logger.warning(
-            "Bot-to-Bot Communication Mode cannot be checked by the Telegram Bot API. "
-            "Enable it for @%s in BotFather; otherwise PayWay bot posts will not arrive.",
-            (await check_bot.get_me()).username,
+            "ABA text-scan mode trusts matching text received in the configured payment group. "
+            "Keep that group private and allow only trusted members."
         )
         await dispatcher.start_polling(
             check_bot,

@@ -705,6 +705,7 @@ class ShopService:
                     "apv": payment.apv,
                     "channel": payment.channel,
                     "merchant": payment.merchant,
+                    "paid_at_text": payment.paid_at_text,
                     "received_at": now,
                     "matched_deposit_id": None,
                     "matched_at": None,

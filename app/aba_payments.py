@@ -15,6 +15,7 @@ class AbaPayment:
     apv: str
     channel: str
     merchant: str
+    paid_at_text: str = ""
 
 
 def _clean(value: str | None) -> str:
@@ -72,6 +73,9 @@ def parse_aba_payment(text: str | None) -> AbaPayment | None:
         re.IGNORECASE,
     )
     route_match = english_route or khmer_route
+    english_paid_at = re.search(r"\(\*\d+\)\s+on\s+(.+?)\s+via\s+", text, re.IGNORECASE)
+    khmer_paid_at = re.search(r"\(\*\d+\)\s+(?:នៅថ្ងៃទី|នៅ)\s+(.+?)\s+តាម\s+", text)
+    paid_at_match = english_paid_at or khmer_paid_at
 
     return AbaPayment(
         transaction_id=transaction_match.group(1),
@@ -82,4 +86,5 @@ def parse_aba_payment(text: str | None) -> AbaPayment | None:
         apv=apv.group(1) if apv else "",
         channel=_clean(route_match.group(1) if route_match else "ABA PayWay"),
         merchant=_clean(route_match.group(2) if route_match else ""),
+        paid_at_text=_clean(paid_at_match.group(1) if paid_at_match else ""),
     )

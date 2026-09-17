@@ -182,24 +182,19 @@ cancelled queue becomes `cancelled` and a new queue can be created immediately.
 
 1. Create a new, dedicated bot with BotFather. Do not reuse a token that is still running through a
    webhook or another polling process.
-2. Open that bot in BotFather's bot settings and enable **Bot-to-Bot Communication Mode**. This is
-   required even when `/chatid` works; a human command proves group access but does not prove that
-   Telegram is delivering messages from the PayWay bot. See Telegram's
-   [Bot-to-Bot Communication documentation](https://core.telegram.org/bots/features#bot-to-bot-communication).
-3. Add that bot to the private group where PayWay by ABA posts payment notifications. Make it an
+2. Add that bot to the private group where PayWay by ABA posts payment notifications. Make it an
    admin, or use `/setprivacy` in BotFather and choose **Disable**, so it receives all ABA bot
    messages.
-4. Put its token in `.env`, enable automatic top-ups, and leave the group ID empty initially:
+3. Put its token in `.env`, enable automatic top-ups, and leave the group ID empty initially:
 
    ```dotenv
    AUTO_TOPUP_ENABLED=true
    PAYMENT_CHECK_BOT_TOKEN=your_dedicated_check_bot_token
    ABA_PAYMENT_GROUP_ID=
-   ABA_PAYMENT_BOT_USERNAME=PayWayByABA_bot
    TOPUP_EXPIRY_MINUTES=15
    ```
 
-5. Start only the listener, send `/chatid` in the ABA group from a Telegram account listed in
+4. Start only the listener, send `/chatid` in the ABA group from a Telegram account listed in
    `ADMIN_IDS`, and copy the negative group ID it replies with:
 
    ```bash
@@ -209,7 +204,7 @@ cancelled queue becomes `cancelled` and a new queue can be created immediately.
    nano .env
    ```
 
-6. Save that value as `ABA_PAYMENT_GROUP_ID=-100...`, then restart all shop processes:
+5. Save that value as `ABA_PAYMENT_GROUP_ID=-100...`, then restart all shop processes:
 
    ```bash
    pm2 startOrRestart ecosystem.config.cjs --update-env
@@ -217,24 +212,24 @@ cancelled queue becomes `cancelled` and a new queue can be created immediately.
    pm2 status
    ```
 
-7. In the ABA group, send `/listenerstatus@YourCheckBotUsername`. It should show
-   **Group-message access: ready**. Telegram does not expose the Bot-to-Bot setting through its API,
-   so the command will also remind you to verify that switch manually in BotFather.
+6. In the ABA group, send `/listenerstatus@YourCheckBotUsername`. It should show
+   **Group-message access: ready** and **Reader mode: ABA text scan**.
 
-8. Watch the listener while making a small real test payment for the exact amount shown by the
+7. Watch the listener while making a small real test payment for the exact amount shown by the
    shop:
 
    ```bash
    pm2 logs telegram-payment-listener --lines 200
    ```
 
-   A received post logs `Received ABA transaction ...`. If the PayWay message appears in Telegram
-   but that log line never appears, enable Bot-to-Bot Communication Mode for the check bot and make
-   the check bot a group admin (or disable its Group Privacy Mode), then restart the listener.
+   A received payment text logs `Scanned ABA transaction ...`.
 
-The listener accepts only direct messages from the configured group and exact ABA bot username.
-Forwarded messages and screenshots are never auto-credited because they can be replayed. Keep the
-manual **Submit payment proof** button as the safe fallback if an ABA notification is delayed or its
+The listener scans every text or caption received in the configured payment group. A matching ABA
+message records the amount, payer name/account suffix, displayed payment time, transaction ID, APV,
+payment channel and merchant. Transaction IDs are stored once, so replaying the same receipt cannot
+credit a wallet twice. Because the sender is not checked, keep this group private and allow only ABA
+and trusted administrators; any member who can post could otherwise submit forged ABA-looking text.
+Keep the manual **Submit payment proof** button as the fallback if a notification is delayed or its
 format changes.
 
 ## Telegram admin workflow

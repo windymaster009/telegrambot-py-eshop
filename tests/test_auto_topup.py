@@ -18,6 +18,7 @@ def payment(transaction_id: str, amount_cents: int, *, currency: str = "USD") ->
         apv="456789",
         channel="ABA PAY",
         merchant="BLINK",
+        paid_at_text="Sep 17, 11:45 PM",
     )
 
 
@@ -71,6 +72,11 @@ async def test_auto_topup_reserves_unique_amounts_and_credits_once() -> None:
         assert matched.deposit.status == DepositStatus.APPROVED.value
         assert matched.deposit.aba_transaction_id == "trx-one"
         assert (await shop.get_user(123456789)).balance_cents == first.amount_cents
+        event = await shop.payment_events.find_one({"_id": "trx-one"})
+        assert event is not None
+        assert event["payer_name"] == "TEST CUSTOMER"
+        assert event["paid_at_text"] == "Sep 17, 11:45 PM"
+        assert event["apv"] == "456789"
 
         duplicate = await shop.process_aba_topup(payment("trx-one", first.amount_cents))
 
