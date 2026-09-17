@@ -1,24 +1,15 @@
-from pathlib import Path
+from datetime import timedelta
 
 import pytest
 from aiogram.types import User as TelegramUser
 
-from app.config import Settings
-from app.database import Database
-from app.models import OrderStatus
-from app.services import InsufficientBalance, ShopService, delivery_text
-
-
-@pytest.fixture
-async def shop(tmp_path: Path):
-    settings = Settings(
-        bot_token="123456:TEST_TOKEN",
-        database_url=f"sqlite+aiosqlite:///{tmp_path / 'test.db'}",
-    )
-    database = Database(settings)
-    await database.create_schema()
-    yield ShopService(database.sessions, payment_expiry_minutes=30)
-    await database.close()
+from app.models import OrderStatus, utc_now
+from app.services import (
+    AlreadyProcessed,
+    InsufficientBalance,
+    ShopService,
+    delivery_text,
+)
 
 
 @pytest.fixture
@@ -47,6 +38,38 @@ async def test_qr_order_is_reserved_reviewed_and_delivered(
 
     assert completed.status == OrderStatus.COMPLETED.value
     assert delivery_text(completed) == "key-one"
+    with pytest.raises(AlreadyProcessed):
+        await shop.approve_order(order.id)
+
+
+async def test_rejected_order_releases_reserved_stock(
+    shop: ShopService, telegram_user: TelegramUser
+) -> None:
+    await shop.get_or_create_user(telegram_user)
+    product = await shop.add_product("Test Product", 500, "None", "Description")
+    await shop.add_stock(product.id, ["one-key"])
+    order = await shop.create_qr_order(telegram_user.id, product.id, 1)
+    await shop.submit_order_proof(telegram_user.id, order.id, "proof-file-id")
+
+    rejected = await shop.reject_order(order.id, "Payment not found")
+
+    assert rejected.status == OrderStatus.REJECTED.value
+    assert (await shop.get_product(product.id)).stock == 1  # type: ignore[union-attr]
+
+
+async def test_expired_order_releases_reserved_stock(
+    shop: ShopService, telegram_user: TelegramUser
+) -> None:
+    await shop.get_or_create_user(telegram_user)
+    product = await shop.add_product("Test Product", 500, "None", "Description")
+    await shop.add_stock(product.id, ["one-key"])
+    order = await shop.create_qr_order(telegram_user.id, product.id, 1)
+    await shop.orders.update_one(
+        {"_id": order.id}, {"$set": {"expires_at": utc_now() - timedelta(minutes=1)}}
+    )
+
+    assert await shop.expire_orders() == 1
+    assert (await shop.get_product(product.id)).stock == 1  # type: ignore[union-attr]
 
 
 async def test_deposit_then_wallet_purchase(shop: ShopService, telegram_user: TelegramUser) -> None:
@@ -60,6 +83,9 @@ async def test_deposit_then_wallet_purchase(shop: ShopService, telegram_user: Te
     deposit = await shop.create_deposit(telegram_user.id, 1000)
     await shop.submit_deposit_proof(telegram_user.id, deposit.id, "proof-file-id")
     await shop.approve_deposit(deposit.id)
+
+    with pytest.raises(AlreadyProcessed):
+        await shop.approve_deposit(deposit.id)
 
     order = await shop.buy_with_balance(telegram_user.id, product.id, 1)
     assert delivery_text(order) == "secret-key"
