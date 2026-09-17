@@ -44,6 +44,15 @@ def test_bundled_payment_poster_is_resolved_from_project_root(monkeypatch) -> No
     assert settings.payment_qr_path.is_file()
 
 
+def test_payment_queue_expires_after_fifteen_minutes_by_default(monkeypatch) -> None:
+    set_required_environment(monkeypatch)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.payment_expiry_minutes == 30
+    assert settings.topup_expiry_minutes == 15
+
+
 def test_aba_listener_settings_are_normalized(monkeypatch) -> None:
     set_required_environment(monkeypatch)
     monkeypatch.setenv("PAYMENT_CHECK_BOT_TOKEN", "123456:CHECK_TOKEN")

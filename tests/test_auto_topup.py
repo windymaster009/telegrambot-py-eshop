@@ -27,6 +27,7 @@ async def make_shop() -> tuple[ShopService, AsyncMongoMockClient]:
         client.eshop,
         client,
         payment_expiry_minutes=30,
+        topup_expiry_minutes=15,
         auto_topup_enabled=True,
         use_transactions=False,
     )
@@ -61,6 +62,7 @@ async def test_auto_topup_reserves_unique_amounts_and_credits_once() -> None:
         assert same_user_retry.id == first.id
         assert first.amount_cents != second.amount_cents
         assert first.expires_at is not None
+        assert first.expires_at - first.created_at == timedelta(minutes=15)
 
         matched = await shop.process_aba_topup(payment("trx-one", first.amount_cents))
 
@@ -117,6 +119,49 @@ async def test_expired_queue_does_not_match_and_old_event_cannot_be_replayed() -
         assert first_seen.deposit is None
         assert replay.duplicate is True
         assert replay.deposit is None
+        assert (
+            await shop.get_user_deposit(123456789, deposit.id)
+        ).status == DepositStatus.EXPIRED.value
         assert (await shop.get_user(123456789)).balance_cents == 0
+    finally:
+        client.close()
+
+
+async def test_customer_can_cancel_unpaid_queue_and_create_another() -> None:
+    shop, client = await make_shop()
+    try:
+        deposit = await shop.create_deposit(123456789, 100)
+
+        cancelled = await shop.cancel_deposit(123456789, deposit.id)
+
+        assert cancelled.status == DepositStatus.CANCELLED.value
+        result = await shop.process_aba_topup(payment("trx-cancelled", deposit.amount_cents))
+        assert result.deposit is None
+        assert (await shop.get_user(123456789)).balance_cents == 0
+
+        replacement = await shop.create_deposit(123456789, 100)
+        assert replacement.id != deposit.id
+    finally:
+        client.close()
+
+
+async def test_new_fifteen_minute_policy_expires_older_existing_queue() -> None:
+    shop, client = await make_shop()
+    try:
+        deposit = await shop.create_deposit(123456789, 500)
+        await shop.deposits.update_one(
+            {"_id": deposit.id},
+            {
+                "$set": {
+                    "created_at": utc_now() - timedelta(minutes=16),
+                    "expires_at": utc_now() + timedelta(minutes=14),
+                }
+            },
+        )
+
+        assert await shop.expire_deposits() == 1
+        expired = await shop.get_user_deposit(123456789, deposit.id)
+        assert expired is not None
+        assert expired.status == DepositStatus.EXPIRED.value
     finally:
         client.close()

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.config import PROJECT_ROOT
-from app.handlers.customer import checkout_qr, receive_deposit_amount
+from app.handlers.customer import cancel_deposit, checkout_qr, receive_deposit_amount
 from app.models import Product
 
 
@@ -15,6 +15,7 @@ def payment_settings(*, auto_topup_enabled: bool = False) -> SimpleNamespace:
         payment_account_name="BLINK Digital Shop",
         payment_account_number="KHQR",
         payment_expiry_minutes=30,
+        topup_expiry_minutes=15,
         auto_topup_enabled=auto_topup_enabled,
     )
 
@@ -111,4 +112,34 @@ async def test_automatic_topup_shows_exact_reserved_amount_and_fallback_button()
     caption = message.answer_photo.await_args.kwargs["caption"]
     assert "TOPUP-7" in caption
     assert "$10.07" in caption
-    assert message.answer_photo.await_args.kwargs["reply_markup"] is not None
+    markup = message.answer_photo.await_args.kwargs["reply_markup"]
+    callbacks = [button.callback_data for row in markup.inline_keyboard for button in row]
+    assert callbacks == ["deposit:proof:7", "deposit:cancel:7"]
+
+
+@pytest.mark.asyncio
+async def test_customer_can_cancel_topup_from_payment_poster() -> None:
+    deposit = SimpleNamespace(
+        id=7,
+        status="awaiting_proof",
+        user=SimpleNamespace(language="en"),
+    )
+    message = SimpleNamespace(edit_reply_markup=AsyncMock(), answer=AsyncMock())
+    callback = SimpleNamespace(
+        data="deposit:cancel:7",
+        from_user=SimpleNamespace(id=123),
+        message=message,
+        answer=AsyncMock(),
+    )
+    state = SimpleNamespace(clear=AsyncMock())
+    service = SimpleNamespace(
+        get_user_deposit=AsyncMock(return_value=deposit),
+        cancel_deposit=AsyncMock(return_value=deposit),
+    )
+
+    await cancel_deposit(callback, state, service)
+
+    service.cancel_deposit.assert_awaited_once_with(123, 7)
+    state.clear.assert_awaited_once()
+    message.edit_reply_markup.assert_awaited_once_with(reply_markup=None)
+    assert "cancelled" in message.answer.await_args.args[0]

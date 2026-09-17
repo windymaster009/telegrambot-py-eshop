@@ -66,12 +66,18 @@ class ShopService:
         client: Any,
         payment_expiry_minutes: int,
         *,
+        topup_expiry_minutes: int | None = None,
         auto_topup_enabled: bool = False,
         use_transactions: bool = True,
     ) -> None:
         self.database = database
         self.client = client
         self.payment_expiry_minutes = payment_expiry_minutes
+        self.topup_expiry_minutes = (
+            topup_expiry_minutes
+            if topup_expiry_minutes is not None
+            else payment_expiry_minutes
+        )
         self.auto_topup_enabled = auto_topup_enabled
         self.use_transactions = use_transactions
 
@@ -318,6 +324,7 @@ class ShopService:
             raise ShopError("Deposit amount is too large")
         if await self.users.find_one({"_id": telegram_id}) is None:
             raise ShopError("User not found. Send /start first.")
+        await self.expire_deposits(user_id=telegram_id)
         now = utc_now()
         if self.auto_topup_enabled:
             existing = await self.deposits.find_one(
@@ -330,6 +337,9 @@ class ShopService:
                         ]
                     },
                     "expires_at": {"$gt": now},
+                    "created_at": {
+                        "$gt": now - timedelta(minutes=self.topup_expiry_minutes)
+                    },
                 },
                 sort=[("created_at", DESCENDING)],
             )
@@ -363,6 +373,7 @@ class ShopService:
         return await self._load_deposit(deposit_id)
 
     async def get_user_deposit(self, telegram_id: int, deposit_id: int) -> Deposit | None:
+        await self.expire_deposits(user_id=telegram_id)
         document = await self.deposits.find_one(
             {"_id": deposit_id, "user_id": telegram_id}
         )
@@ -373,6 +384,7 @@ class ShopService:
     async def submit_deposit_proof(
         self, telegram_id: int, deposit_id: int, file_id: str
     ) -> Deposit:
+        await self.expire_deposits(user_id=telegram_id)
         document = await self.deposits.find_one_and_update(
             {
                 "_id": deposit_id,
@@ -387,6 +399,30 @@ class ShopService:
                 "$set": {
                     "payment_proof_file_id": file_id,
                     "status": DepositStatus.AWAITING_REVIEW.value,
+                }
+            },
+            return_document=ReturnDocument.AFTER,
+        )
+        if document is None:
+            raise AlreadyProcessed
+        return await self._load_deposit(deposit_id)
+
+    async def cancel_deposit(self, telegram_id: int, deposit_id: int) -> Deposit:
+        """Cancel an unpaid top-up without releasing its anti-replay amount slot."""
+        await self.expire_deposits(user_id=telegram_id)
+        now = utc_now()
+        document = await self.deposits.find_one_and_update(
+            {
+                "_id": deposit_id,
+                "user_id": telegram_id,
+                "status": DepositStatus.AWAITING_PROOF.value,
+                "aba_transaction_id": None,
+            },
+            {
+                "$set": {
+                    "status": DepositStatus.CANCELLED.value,
+                    "admin_note": "Cancelled by customer before payment confirmation",
+                    "reviewed_at": now,
                 }
             },
             return_document=ReturnDocument.AFTER,
@@ -577,6 +613,7 @@ class ShopService:
         return await self.admin_deposits(status=DepositStatus.AWAITING_REVIEW.value, limit=limit)
 
     async def admin_deposits(self, status: str | None = None, limit: int = 100) -> list[Deposit]:
+        await self.expire_deposits()
         query: Document = {} if status is None else {"status": status}
         documents = await (
             self.deposits.find(query)
@@ -642,6 +679,8 @@ class ShopService:
         return await self._load_deposit(deposit_id)
 
     async def process_aba_topup(self, payment: AbaPayment) -> TopupMatchResult:
+        await self.expire_deposits()
+
         async def operation(session: Any) -> TopupMatchResult:
             now = utc_now()
             existing = await self.payment_events.find_one(
@@ -686,6 +725,9 @@ class ShopService:
                         ]
                     },
                     "expires_at": {"$gt": now},
+                    "created_at": {
+                        "$gt": now - timedelta(minutes=self.topup_expiry_minutes)
+                    },
                     "aba_transaction_id": None,
                 },
                 sort=[("created_at", ASCENDING)],
@@ -705,6 +747,9 @@ class ShopService:
                         ]
                     },
                     "expires_at": {"$gt": now},
+                    "created_at": {
+                        "$gt": now - timedelta(minutes=self.topup_expiry_minutes)
+                    },
                     "aba_transaction_id": None,
                 },
                 {
@@ -757,17 +802,30 @@ class ShopService:
                 return TopupMatchResult(payment.transaction_id, True, deposit)
             return TopupMatchResult(payment.transaction_id, True, None)
 
-    async def expire_deposits(self) -> int:
+    async def expire_deposits(self, *, user_id: int | None = None) -> int:
         now = utc_now()
+        query: Document = {
+            "status": DepositStatus.AWAITING_PROOF.value,
+            "expires_at": {"$ne": None},
+            "$or": [
+                {"expires_at": {"$lte": now}},
+                {
+                    "created_at": {
+                        "$lte": now - timedelta(minutes=self.topup_expiry_minutes)
+                    }
+                },
+            ],
+        }
+        if user_id is not None:
+            query["user_id"] = user_id
         result = await self.deposits.update_many(
-            {
-                "status": DepositStatus.AWAITING_PROOF.value,
-                "expires_at": {"$lt": now},
-            },
+            query,
             {
                 "$set": {
-                    "status": DepositStatus.REJECTED.value,
-                    "admin_note": "Automatic top-up window expired",
+                    "status": DepositStatus.EXPIRED.value,
+                    "admin_note": (
+                        f"Automatic top-up expired after {self.topup_expiry_minutes} minutes"
+                    ),
                     "reviewed_at": now,
                 }
             },
@@ -870,7 +928,7 @@ class ShopService:
     async def _reserve_topup_amount(
         self, requested_cents: int, deposit_id: int, now: datetime
     ) -> tuple[int, datetime]:
-        expires_at = now + timedelta(minutes=self.payment_expiry_minutes)
+        expires_at = now + timedelta(minutes=self.topup_expiry_minutes)
         release_at = now + timedelta(hours=24)
         for attempt in range(99):
             offset = ((deposit_id + attempt - 1) % 99) + 1

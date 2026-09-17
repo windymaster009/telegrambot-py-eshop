@@ -81,7 +81,8 @@ TEXTS: Mapping[str, Mapping[str, str]] = {
             "The ABA notification will confirm this top-up automatically and credit the full "
             "amount. This queue expires in {minutes} minutes. Only one queue can be active per "
             "account.\n\n"
-            "If it is not confirmed after a few minutes, use the button below to send proof."
+            "If it is not confirmed after a few minutes, use the button below to send proof. "
+            "Only cancel if you have not paid."
         ),
         "deposit_received": (
             "✅ Deposit screenshot received. An admin will review it soon.\n"
@@ -92,6 +93,10 @@ TEXTS: Mapping[str, Mapping[str, str]] = {
             "❌ Deposit #{deposit_id} was rejected. Contact support if you need help."
         ),
         "submit_payment_proof": "📸 Submit payment proof",
+        "cancel_topup": "❌ Cancel top-up",
+        "topup_cancelled": "❌ Top-up #{deposit_id} cancelled. You can create a new one now.",
+        "topup_already_cancelled": "This top-up was already cancelled.",
+        "topup_expired": "⌛ This top-up expired. Please create a new one.",
         "topup_not_pending": "This top-up is no longer pending.",
         "topup_already_approved": "✅ This top-up has already been confirmed.",
         "order_rejected": (
@@ -187,12 +192,17 @@ TEXTS: Mapping[str, Mapping[str, str]] = {
             "ស្កេន BLINK KHQR ហើយបញ្ចូលចំនួនទឹកប្រាក់ឱ្យត្រឹមត្រូវ រួមទាំងខ្ទង់សេន។ "
             "សារ ABA នឹងផ្ទៀងផ្ទាត់ និងបញ្ចូលទឹកប្រាក់ទាំងមូលទៅសមតុល្យដោយស្វ័យប្រវត្តិ។ "
             "ជួរនេះផុតកំណត់ក្នុង {minutes} នាទី។ គណនីនីមួយៗអាចមានជួរសកម្មតែមួយប៉ុណ្ណោះ។\n\n"
-            "បើមិនទាន់បានបញ្ជាក់ក្រោយពីប៉ុន្មាននាទី សូមប្រើប៊ូតុងខាងក្រោមដើម្បីផ្ញើបង្កាន់ដៃ។"
+            "បើមិនទាន់បានបញ្ជាក់ក្រោយពីប៉ុន្មាននាទី សូមប្រើប៊ូតុងខាងក្រោមដើម្បីផ្ញើបង្កាន់ដៃ។ "
+            "សូមបោះបង់តែក្នុងករណីដែលអ្នកមិនទាន់បានបង់ប្រាក់ប៉ុណ្ណោះ។"
         ),
         "deposit_received": "✅ បានទទួលបង្កាន់ដៃបញ្ចូលប្រាក់។ អ្នកគ្រប់គ្រងនឹងពិនិត្យឆាប់ៗ។",
         "deposit_approved": "✅ ការបញ្ចូលប្រាក់ #{deposit_id} ត្រូវបានអនុម័ត។ សមតុល្យថ្មី៖ {balance}។",
         "deposit_rejected": "❌ ការបញ្ចូលប្រាក់ #{deposit_id} ត្រូវបានបដិសេធ។ សូមទាក់ទងអ្នកគ្រប់គ្រង។",
         "submit_payment_proof": "📸 ផ្ញើបង្កាន់ដៃទូទាត់",
+        "cancel_topup": "❌ បោះបង់ការបញ្ចូលប្រាក់",
+        "topup_cancelled": "❌ បានបោះបង់ការបញ្ចូលប្រាក់ #{deposit_id}។ ឥឡូវអ្នកអាចបង្កើតថ្មីបាន។",
+        "topup_already_cancelled": "ការបញ្ចូលប្រាក់នេះត្រូវបានបោះបង់រួចហើយ។",
+        "topup_expired": "⌛ ការបញ្ចូលប្រាក់នេះបានផុតកំណត់។ សូមបង្កើតថ្មី។",
         "topup_not_pending": "ការបញ្ចូលប្រាក់នេះលែងរង់ចាំទៀតហើយ។",
         "topup_already_approved": "✅ ការបញ្ចូលប្រាក់នេះត្រូវបានបញ្ជាក់រួចហើយ។",
         "order_rejected": "❌ ការទូទាត់សម្រាប់ការបញ្ជាទិញ #{order_id} ត្រូវបានបដិសេធ។",

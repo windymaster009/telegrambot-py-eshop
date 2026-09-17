@@ -443,7 +443,7 @@ async def receive_deposit_amount(
             amount=format_money(deposit.amount_cents),
             account_name=escape(settings.payment_account_name),
             account_number=escape(settings.payment_account_number),
-            minutes=settings.payment_expiry_minutes,
+            minutes=settings.topup_expiry_minutes,
         )
         reply_markup = deposit_payment_actions(deposit.id, user.language)
     else:
@@ -481,6 +481,18 @@ async def request_deposit_proof(
             show_alert=True,
         )
         return
+    if deposit.status == DepositStatus.CANCELLED.value:
+        await callback.answer(
+            tr(deposit.user.language, "topup_already_cancelled"),  # type: ignore[union-attr]
+            show_alert=True,
+        )
+        return
+    if deposit.status == DepositStatus.EXPIRED.value:
+        await callback.answer(
+            tr(deposit.user.language, "topup_expired"),  # type: ignore[union-attr]
+            show_alert=True,
+        )
+        return
     if (
         deposit.status != DepositStatus.AWAITING_PROOF.value
         or (deposit.expires_at is not None and deposit.expires_at <= utc_now())
@@ -495,6 +507,41 @@ async def request_deposit_proof(
     if callback.message:
         await callback.message.answer(
             tr(deposit.user.language, "send_proof")  # type: ignore[union-attr]
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data.regexp(r"^deposit:cancel:\d+$"))
+async def cancel_deposit(
+    callback: CallbackQuery, state: FSMContext, service: ShopService
+) -> None:
+    deposit_id = int(callback.data.rsplit(":", 1)[1])  # type: ignore[union-attr]
+    deposit = await service.get_user_deposit(callback.from_user.id, deposit_id)
+    if deposit is None:
+        await callback.answer("Deposit not found.", show_alert=True)
+        return
+
+    language = deposit.user.language  # type: ignore[union-attr]
+    try:
+        deposit = await service.cancel_deposit(callback.from_user.id, deposit_id)
+    except AlreadyProcessed:
+        deposit = await service.get_user_deposit(callback.from_user.id, deposit_id)
+        status_key = {
+            DepositStatus.APPROVED.value: "topup_already_approved",
+            DepositStatus.CANCELLED.value: "topup_already_cancelled",
+            DepositStatus.EXPIRED.value: "topup_expired",
+        }.get(deposit.status if deposit else "", "topup_not_pending")
+        await callback.answer(tr(language, status_key), show_alert=True)
+        return
+
+    await state.clear()
+    if callback.message:
+        try:
+            await callback.message.edit_reply_markup(reply_markup=None)
+        except TelegramBadRequest:
+            pass
+        await callback.message.answer(
+            tr(language, "topup_cancelled", deposit_id=deposit.id)
         )
     await callback.answer()
 

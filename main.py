@@ -23,7 +23,7 @@ async def expire_orders_loop(service: ShopService) -> None:
             if expired_deposits:
                 logging.info("Expired %s unpaid top-up(s)", expired_deposits)
         except Exception:
-            logging.exception("Failed to expire unpaid orders")
+            logging.exception("Failed to expire unpaid orders or top-up queues")
         await asyncio.sleep(60)
 
 
@@ -39,6 +39,7 @@ async def main() -> None:
         database.db,
         database.client,
         settings.payment_expiry_minutes,
+        topup_expiry_minutes=settings.topup_expiry_minutes,
         auto_topup_enabled=settings.auto_topup_enabled,
     )
     bot = Bot(

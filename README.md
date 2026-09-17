@@ -76,6 +76,7 @@ PAYMENT_QR_PATH=assets/payment_qr.png
 PAYMENT_ACCOUNT_NAME=YOUR ABA ACCOUNT NAME
 PAYMENT_ACCOUNT_NUMBER=YOUR ACCOUNT NUMBER
 PAYMENT_EXPIRY_MINUTES=30
+TOPUP_EXPIRY_MINUTES=15
 
 AUTO_TOPUP_ENABLED=false
 PAYMENT_CHECK_BOT_TOKEN=
@@ -173,13 +174,18 @@ payment-proof and admin-review flow.
 The shop reserves a unique payable amount for each top-up queue. For example, a requested `$10.00`
 top-up may ask the customer to pay `$10.07`. The ABA listener matches that exact amount, stores the
 ABA transaction ID once, approves the deposit, and credits the exact amount paid. Repeated ABA
-notifications cannot credit the wallet twice. A queue expires after `PAYMENT_EXPIRY_MINUTES`, while
+notifications cannot credit the wallet twice. A queue expires after `TOPUP_EXPIRY_MINUTES`, while
 its amount remains reserved for 24 hours to prevent a late bank notification from matching a newer
-queue. Each Telegram customer can have only one active top-up queue at a time.
+queue. Each Telegram customer can have only one active top-up queue at a time. Unpaid queues become
+`expired` after 15 minutes by default. Customers can also use **Cancel top-up** before paying; a
+cancelled queue becomes `cancelled` and a new queue can be created immediately.
 
 1. Create a new, dedicated bot with BotFather. Do not reuse a token that is still running through a
    webhook or another polling process.
-2. Open that bot in BotFather's bot settings and enable **Bot-to-Bot Communication Mode**.
+2. Open that bot in BotFather's bot settings and enable **Bot-to-Bot Communication Mode**. This is
+   required even when `/chatid` works; a human command proves group access but does not prove that
+   Telegram is delivering messages from the PayWay bot. See Telegram's
+   [Bot-to-Bot Communication documentation](https://core.telegram.org/bots/features#bot-to-bot-communication).
 3. Add that bot to the private group where PayWay by ABA posts payment notifications. Make it an
    admin, or use `/setprivacy` in BotFather and choose **Disable**, so it receives all ABA bot
    messages.
@@ -190,6 +196,7 @@ queue. Each Telegram customer can have only one active top-up queue at a time.
    PAYMENT_CHECK_BOT_TOKEN=your_dedicated_check_bot_token
    ABA_PAYMENT_GROUP_ID=
    ABA_PAYMENT_BOT_USERNAME=PayWayByABA_bot
+   TOPUP_EXPIRY_MINUTES=15
    ```
 
 5. Start only the listener, send `/chatid` in the ABA group from a Telegram account listed in
@@ -210,9 +217,25 @@ queue. Each Telegram customer can have only one active top-up queue at a time.
    pm2 status
    ```
 
-The listener accepts messages only from the configured group and exact ABA bot username. Keep the
-manual **Submit payment proof** button as a fallback if an ABA notification is delayed or its format
-changes.
+7. In the ABA group, send `/listenerstatus@YourCheckBotUsername`. It should show
+   **Group-message access: ready**. Telegram does not expose the Bot-to-Bot setting through its API,
+   so the command will also remind you to verify that switch manually in BotFather.
+
+8. Watch the listener while making a small real test payment for the exact amount shown by the
+   shop:
+
+   ```bash
+   pm2 logs telegram-payment-listener --lines 200
+   ```
+
+   A received post logs `Received ABA transaction ...`. If the PayWay message appears in Telegram
+   but that log line never appears, enable Bot-to-Bot Communication Mode for the check bot and make
+   the check bot a group admin (or disable its Group Privacy Mode), then restart the listener.
+
+The listener accepts only direct messages from the configured group and exact ABA bot username.
+Forwarded messages and screenshots are never auto-credited because they can be replayed. Keep the
+manual **Submit payment proof** button as the safe fallback if an ABA notification is delayed or its
+format changes.
 
 ## Telegram admin workflow
 

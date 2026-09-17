@@ -32,6 +32,8 @@ class DepositStatus(StrEnum):
     AWAITING_REVIEW = "awaiting_review"
     APPROVED = "approved"
     REJECTED = "rejected"
+    CANCELLED = "cancelled"
+    EXPIRED = "expired"
 
 
 @dataclass(slots=True)

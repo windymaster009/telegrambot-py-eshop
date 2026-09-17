@@ -85,7 +85,13 @@ def deposit_payment_actions(deposit_id: int, language: str) -> InlineKeyboardMar
                     text=tr(language, "submit_payment_proof"),
                     callback_data=f"deposit:proof:{deposit_id}",
                 )
-            ]
+            ],
+            [
+                InlineKeyboardButton(
+                    text=tr(language, "cancel_topup"),
+                    callback_data=f"deposit:cancel:{deposit_id}",
+                )
+            ],
         ]
     )
 

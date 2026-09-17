@@ -1,14 +1,16 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from payment_listener import receive_aba_notification
+from payment_listener import _listener_status, receive_aba_notification
 
 
 def aba_message(*, chat_id: int, username: str = "PayWayByABA_bot") -> SimpleNamespace:
     return SimpleNamespace(
         chat=SimpleNamespace(id=chat_id),
-        from_user=SimpleNamespace(username=username),
+        message_id=55,
+        from_user=SimpleNamespace(username=username, id=777, is_bot=True),
         sender_chat=None,
+        forward_origin=None,
         text=(
             "$10.07 paid by TEST CUSTOMER (*123) on Sep 17 via ABA PAY at BLINK. "
             "Trx. ID: 123456789, APV: 445566."
@@ -38,6 +40,18 @@ async def test_listener_ignores_wrong_group_and_sender() -> None:
     )
     await receive_aba_notification(
         aba_message(chat_id=-100777, username="not_the_aba_bot"),
+        service,
+        listener_settings(),
+        shop_bot,
+        check_bot,
+    )
+    forwarded = aba_message(chat_id=-100777)
+    forwarded.from_user = SimpleNamespace(username="admin", id=123, is_bot=False)
+    forwarded.forward_origin = SimpleNamespace(
+        sender_user=SimpleNamespace(username="PayWayByABA_bot", id=777, is_bot=True)
+    )
+    await receive_aba_notification(
+        forwarded,
         service,
         listener_settings(),
         shop_bot,
@@ -74,3 +88,23 @@ async def test_listener_notifies_customer_and_group_after_match() -> None:
     assert "TOPUP-7" in confirmation
     assert "$10.07" in confirmation
     assert "123456789" in confirmation
+
+
+async def test_listener_status_reports_group_permissions_and_botfather_check() -> None:
+    check_bot = SimpleNamespace(
+        get_me=AsyncMock(
+            return_value=SimpleNamespace(
+                id=123,
+                username="Check_ABA_Bot",
+                can_read_all_group_messages=False,
+            )
+        ),
+        get_chat_member=AsyncMock(
+            return_value=SimpleNamespace(status=SimpleNamespace(value="administrator"))
+        ),
+    )
+
+    status = await _listener_status(check_bot, listener_settings())
+
+    assert "Group-message access: <b>ready</b>" in status
+    assert "verify in BotFather" in status

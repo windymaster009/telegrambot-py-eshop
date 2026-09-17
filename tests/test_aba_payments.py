@@ -20,6 +20,18 @@ def test_parses_current_english_aba_notification() -> None:
     assert payment.apv == "886284"
 
 
+def test_parses_five_cent_payment_from_production_screenshot() -> None:
+    payment = parse_aba_payment(
+        "$0.05 paid by MEAS PUTTHYVIREAK (*565) on Sep 17, 11:45 PM via "
+        "ABA PAY at MeeS by K.NHIM. Trx. ID: 178966354995635, APV: 305256."
+    )
+
+    assert payment is not None
+    assert payment.amount_minor == 5
+    assert payment.transaction_id == "178966354995635"
+    assert payment.payer_name == "MEAS PUTTHYVIREAK"
+
+
 def test_parses_older_transaction_number_wording() -> None:
     payment = parse_aba_payment(
         "$10.07 was paid by TEST CUSTOMER (*123) on Sep 17 via ABA PAY at BLINK. "

@@ -73,6 +73,7 @@ def create_app(
                 active_database.db,
                 active_database.client,
                 resolved_settings.payment_expiry_minutes,
+                topup_expiry_minutes=resolved_settings.topup_expiry_minutes,
                 auto_topup_enabled=resolved_settings.auto_topup_enabled,
             )
         if active_bot is None:
