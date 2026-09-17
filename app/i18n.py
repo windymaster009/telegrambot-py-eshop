@@ -40,7 +40,8 @@ TEXTS: Mapping[str, Mapping[str, str]] = {
             "📦 {name} × {quantity}\n"
             "💵 Pay exactly: <b>{total}</b>\n"
             "🏦 Account: <b>{account_name}</b> ({account_number})\n\n"
-            "Scan this QR and pay the exact amount. Then send the payment screenshot here. "
+            "Scan the BLINK KHQR in this poster and pay the exact amount. "
+            "Then send the payment screenshot here. "
             "This order expires in {minutes} minutes."
         ),
         "payment_no_qr": (
@@ -68,7 +69,7 @@ TEXTS: Mapping[str, Mapping[str, str]] = {
             "➕ <b>Deposit #{deposit_id}</b>\n"
             "Pay exactly: <b>{amount}</b>\n"
             "🏦 Account: <b>{account_name}</b> ({account_number})\n\n"
-            "After paying, send the payment screenshot here."
+            "Scan the BLINK KHQR in this poster. After paying, send the payment screenshot here."
         ),
         "deposit_received": (
             "✅ Deposit screenshot received. An admin will review it soon.\n"
@@ -138,7 +139,8 @@ TEXTS: Mapping[str, Mapping[str, str]] = {
             "📦 {name} × {quantity}\n"
             "💵 បង់ឱ្យបានត្រឹមត្រូវ៖ <b>{total}</b>\n"
             "🏦 គណនី៖ <b>{account_name}</b> ({account_number})\n\n"
-            "ស្កេន QR នេះ រួចផ្ញើរូបថតបង្កាន់ដៃមកទីនេះ។ "
+            "ស្កេន BLINK KHQR ក្នុងផ្ទាំងនេះ ហើយបង់ប្រាក់ឱ្យបានត្រឹមត្រូវ។ "
+            "បន្ទាប់មក ផ្ញើរូបថតបង្កាន់ដៃមកទីនេះ។ "
             "ការបញ្ជាទិញនេះផុតកំណត់ក្នុង {minutes} នាទី។"
         ),
         "payment_no_qr": (
@@ -159,7 +161,7 @@ TEXTS: Mapping[str, Mapping[str, str]] = {
             "➕ <b>បញ្ចូលប្រាក់ #{deposit_id}</b>\n"
             "បង់ឱ្យបានត្រឹមត្រូវ៖ <b>{amount}</b>\n"
             "🏦 គណនី៖ <b>{account_name}</b> ({account_number})\n\n"
-            "បន្ទាប់ពីបង់ សូមផ្ញើរូបថតបង្កាន់ដៃមកទីនេះ។"
+            "ស្កេន BLINK KHQR ក្នុងផ្ទាំងនេះ។ បន្ទាប់ពីបង់ សូមផ្ញើរូបថតបង្កាន់ដៃមកទីនេះ។"
         ),
         "deposit_received": "✅ បានទទួលបង្កាន់ដៃបញ្ចូលប្រាក់។ អ្នកគ្រប់គ្រងនឹងពិនិត្យឆាប់ៗ។",
         "deposit_approved": "✅ ការបញ្ចូលប្រាក់ #{deposit_id} ត្រូវបានអនុម័ត។ សមតុល្យថ្មី៖ {balance}។",

@@ -5,6 +5,8 @@ from typing import Annotated
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
@@ -45,6 +47,11 @@ class Settings(BaseSettings):
         if not cleaned or any(character in cleaned for character in '/\\."$'):
             raise ValueError("MONGO_DB_NAME contains an invalid character")
         return cleaned
+
+    @field_validator("payment_qr_path")
+    @classmethod
+    def resolve_payment_qr_path(cls, value: Path) -> Path:
+        return value if value.is_absolute() else PROJECT_ROOT / value
 
 
 @lru_cache
