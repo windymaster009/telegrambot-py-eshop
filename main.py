@@ -31,9 +31,16 @@ async def main() -> None:
     )
     settings = get_settings()
     database = Database(settings)
-    await database.create_schema()
-    service = ShopService(database.sessions, settings.payment_expiry_minutes)
-    bot = Bot(settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+    await database.connect()
+    service = ShopService(
+        database.db,
+        database.client,
+        settings.payment_expiry_minutes,
+    )
+    bot = Bot(
+        settings.bot_token.get_secret_value(),
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
+    )
     dispatcher = Dispatcher(storage=MemoryStorage())
     dispatcher.include_router(admin.router)
     dispatcher.include_router(customer.router)
