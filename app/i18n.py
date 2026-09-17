@@ -88,7 +88,10 @@ TEXTS: Mapping[str, Mapping[str, str]] = {
             "✅ Deposit screenshot received. An admin will review it soon.\n"
             "Your balance will update after approval."
         ),
-        "deposit_approved": "✅ Deposit #{deposit_id} approved. Your new balance is {balance}.",
+        "deposit_approved": (
+            "✅ <b>Payment successful!</b> Top-up #{deposit_id} is confirmed.\n"
+            "Your new balance is {balance}."
+        ),
         "deposit_rejected": (
             "❌ Deposit #{deposit_id} was rejected. Contact support if you need help."
         ),
@@ -97,6 +100,11 @@ TEXTS: Mapping[str, Mapping[str, str]] = {
         "topup_cancelled": "❌ Top-up #{deposit_id} cancelled. You can create a new one now.",
         "topup_already_cancelled": "This top-up was already cancelled.",
         "topup_expired": "⌛ This top-up expired. Please create a new one.",
+        "topup_failed": (
+            "❌ <b>Payment failed / timed out</b>\n"
+            "No matching ABA payment was received for top-up #{deposit_id} within 15 minutes. "
+            "Your balance was not changed. If you already paid, contact support."
+        ),
         "topup_not_pending": "This top-up is no longer pending.",
         "topup_already_approved": "✅ This top-up has already been confirmed.",
         "order_rejected": (
@@ -197,13 +205,22 @@ TEXTS: Mapping[str, Mapping[str, str]] = {
             "សូមបោះបង់តែក្នុងករណីដែលអ្នកមិនទាន់បានបង់ប្រាក់ប៉ុណ្ណោះ។"
         ),
         "deposit_received": "✅ បានទទួលបង្កាន់ដៃបញ្ចូលប្រាក់។ អ្នកគ្រប់គ្រងនឹងពិនិត្យឆាប់ៗ។",
-        "deposit_approved": "✅ ការបញ្ចូលប្រាក់ #{deposit_id} ត្រូវបានអនុម័ត។ សមតុល្យថ្មី៖ {balance}។",
+        "deposit_approved": (
+            "✅ <b>ការទូទាត់បានជោគជ័យ!</b> ការបញ្ចូលប្រាក់ #{deposit_id} ត្រូវបានបញ្ជាក់។\n"
+            "សមតុល្យថ្មី៖ {balance}។"
+        ),
         "deposit_rejected": "❌ ការបញ្ចូលប្រាក់ #{deposit_id} ត្រូវបានបដិសេធ។ សូមទាក់ទងអ្នកគ្រប់គ្រង។",
         "submit_payment_proof": "📸 ផ្ញើបង្កាន់ដៃទូទាត់",
         "cancel_topup": "❌ បោះបង់ការបញ្ចូលប្រាក់",
         "topup_cancelled": "❌ បានបោះបង់ការបញ្ចូលប្រាក់ #{deposit_id}។ ឥឡូវអ្នកអាចបង្កើតថ្មីបាន។",
         "topup_already_cancelled": "ការបញ្ចូលប្រាក់នេះត្រូវបានបោះបង់រួចហើយ។",
         "topup_expired": "⌛ ការបញ្ចូលប្រាក់នេះបានផុតកំណត់។ សូមបង្កើតថ្មី។",
+        "topup_failed": (
+            "❌ <b>ការទូទាត់បរាជ័យ ឬផុតកំណត់</b>\n"
+            "មិនបានទទួលការទូទាត់ ABA ដែលត្រូវគ្នាសម្រាប់ការបញ្ចូលប្រាក់ #{deposit_id} "
+            "ក្នុងរយៈពេល 15 នាទី។ សមតុល្យរបស់អ្នកមិនត្រូវបានផ្លាស់ប្តូរទេ។ "
+            "បើអ្នកបានបង់រួច សូមទាក់ទងអ្នកគ្រប់គ្រង។"
+        ),
         "topup_not_pending": "ការបញ្ចូលប្រាក់នេះលែងរង់ចាំទៀតហើយ។",
         "topup_already_approved": "✅ ការបញ្ចូលប្រាក់នេះត្រូវបានបញ្ជាក់រួចហើយ។",
         "order_rejected": "❌ ការទូទាត់សម្រាប់ការបញ្ជាទិញ #{order_id} ត្រូវបានបដិសេធ។",

@@ -64,3 +64,15 @@ def test_aba_listener_settings_are_normalized(monkeypatch) -> None:
     assert settings.payment_check_bot_token is not None
     assert settings.aba_payment_group_id == -1001234567890
     assert settings.aba_payment_bot_username == "paywaybyaba_bot"
+
+
+def test_payment_reader_settings_are_complete(monkeypatch) -> None:
+    set_required_environment(monkeypatch)
+    monkeypatch.setenv("PAYMENT_READER_API_ID", "123456")
+    monkeypatch.setenv("PAYMENT_READER_API_HASH", "test-api-hash")
+    monkeypatch.setenv("PAYMENT_READER_SESSION", "test-session")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.payment_reader_configured is True
+    assert settings.payment_reader_api_id == 123456

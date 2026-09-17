@@ -82,6 +82,9 @@ AUTO_TOPUP_ENABLED=false
 PAYMENT_CHECK_BOT_TOKEN=
 ABA_PAYMENT_GROUP_ID=
 ABA_PAYMENT_BOT_USERNAME=PayWayByABA_bot
+PAYMENT_READER_API_ID=
+PAYMENT_READER_API_HASH=
+PAYMENT_READER_SESSION=
 ```
 
 Both `ADMIN_IDS=123,456` and `ADMIN_IDS=[123,456]` work. The bundled poster at
@@ -185,51 +188,53 @@ queue. Customers can use **Cancel top-up** only before paying. A slot under manu
 a 24-hour fail-safe reservation, or is released earlier when an administrator approves or rejects
 it.
 
-1. Create a new, dedicated bot with BotFather. Do not reuse a token that is still running through a
-   webhook or another polling process.
-2. Add that bot to the private group where PayWay by ABA posts payment notifications. Make it an
-   admin, or use `/setprivacy` in BotFather and choose **Disable**, so it receives all ABA bot
-   messages.
-3. Put its token in `.env`, enable automatic top-ups, and leave the group ID empty initially:
+1. Create a new, dedicated check bot with BotFather. It sends confirmations and handles
+   `/chatid` and `/listenerstatus`.
+2. Telegram's Bot API does not deliver messages authored by another bot. Create a dedicated
+   Telegram **user account** for read-only payment monitoring and add that account to the private
+   ABA notification group. Do not reuse a personal account containing sensitive chats.
+3. Create an API ID and API hash for that reader account at
+   [my.telegram.org](https://my.telegram.org), install the updated dependencies, and generate its
+   encrypted session string:
+
+   ```bash
+   cd /home/kevin/telegrambot-py-eshop
+   source .venv/bin/activate
+   pip install -r requirements.txt
+   python scripts/create_payment_reader_session.py
+   ```
+
+   Telegram will ask for the reader account phone number, login code, and two-step password when
+   enabled. Copy the three printed `PAYMENT_READER_*` lines into `.env`. The session string gives
+   access to that Telegram account; never paste it into chat or commit it to Git.
+4. Configure the listener:
 
    ```dotenv
    AUTO_TOPUP_ENABLED=true
    PAYMENT_CHECK_BOT_TOKEN=your_dedicated_check_bot_token
-   ABA_PAYMENT_GROUP_ID=
+   ABA_PAYMENT_GROUP_ID=-1005407734841
    TOPUP_EXPIRY_MINUTES=15
+   PAYMENT_READER_API_ID=your_api_id
+   PAYMENT_READER_API_HASH=your_api_hash
+   PAYMENT_READER_SESSION=your_private_session_string
    ```
 
-4. Start only the listener, send `/chatid` in the ABA group from a Telegram account listed in
-   `ADMIN_IDS`, and copy the negative group ID it replies with:
+5. Restart the listener and inspect startup:
 
    ```bash
-   cd /home/kevin/telegrambot-py-eshop
-   pm2 start ecosystem.config.cjs --only telegram-payment-listener
+   pm2 restart telegram-payment-listener --update-env
    pm2 logs telegram-payment-listener --lines 100
-   nano .env
    ```
 
-5. Save that value as `ABA_PAYMENT_GROUP_ID=-100...`, then restart all shop processes:
-
-   ```bash
-   pm2 startOrRestart ecosystem.config.cjs --update-env
-   pm2 save
-   pm2 status
-   ```
-
+   A healthy startup logs `Telegram user-account payment reader connected`.
 6. In the ABA group, send `/listenerstatus@YourCheckBotUsername`. It should show
-   **Group-message access: ready** and **Reader mode: ABA text scan**.
+   **PayWay bot-message reader: ready**.
+7. Make a small real payment for the exact amount shown by the shop. A received payment logs
+   `Scanned ABA transaction ...`, credits the wallet once, and sends the customer a
+   **Payment successful** message. If no matching payment is received within 15 minutes, the
+   customer receives a **Payment failed / timed out** message.
 
-7. Watch the listener while making a small real test payment for the exact amount shown by the
-   shop:
-
-   ```bash
-   pm2 logs telegram-payment-listener --lines 200
-   ```
-
-   A received payment text logs `Scanned ABA transaction ...`.
-
-The listener scans every text or caption received in the configured payment group. A matching ABA
+The user-account reader scans every text received in the configured payment group. A matching ABA
 message records the amount, payer name/account suffix, displayed payment time, transaction ID, APV,
 payment channel and merchant. Transaction IDs are stored once, so replaying the same receipt cannot
 credit a wallet twice. Because the sender is not checked, keep this group private and allow only ABA

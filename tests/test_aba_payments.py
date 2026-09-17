@@ -36,6 +36,25 @@ def test_parses_five_cent_payment_from_production_screenshot() -> None:
     assert payment.apv == "305256"
 
 
+
+def test_parses_current_aba_khqr_acleda_notification() -> None:
+    payment = parse_aba_payment(
+        "$0.06 paid by Nhim Kevin (*115) on Sep 18, 02:01 AM via "
+        "ABA KHQR (ACLEDA Bank Plc.) at MeeS by K.NHIM. "
+        "Trx. ID: 178967170494958, APV: 661345."
+    )
+
+    assert payment is not None
+    assert payment.amount_minor == 6
+    assert payment.transaction_id == "178967170494958"
+    assert payment.payer_name == "Nhim Kevin"
+    assert payment.payer_account == "*115"
+    assert payment.paid_at_text == "Sep 18, 02:01 AM"
+    assert payment.channel == "ABA KHQR (ACLEDA Bank Plc.)"
+    assert payment.merchant == "MeeS by K.NHIM"
+    assert payment.apv == "661345"
+
+
 def test_parses_older_transaction_number_wording() -> None:
     payment = parse_aba_payment(
         "$10.07 was paid by TEST CUSTOMER (*123) on Sep 17 via ABA PAY at BLINK. "

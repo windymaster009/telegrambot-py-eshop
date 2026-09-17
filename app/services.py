@@ -852,6 +852,41 @@ class ShopService:
             expired += 1
         return expired
 
+    async def expired_deposits_awaiting_notification(
+        self, limit: int = 100
+    ) -> list[Deposit]:
+        documents = await (
+            self.deposits.find(
+                {
+                    "status": DepositStatus.EXPIRED.value,
+                    "expiry_notification_processed_at": None,
+                }
+            )
+            .sort("reviewed_at", ASCENDING)
+            .limit(limit)
+            .to_list(length=limit)
+        )
+        return [
+            await self._load_deposit(int(document["_id"])) for document in documents
+        ]
+
+    async def mark_expiry_notification_processed(
+        self, deposit_id: int, *, delivered: bool
+    ) -> None:
+        await self.deposits.update_one(
+            {
+                "_id": deposit_id,
+                "status": DepositStatus.EXPIRED.value,
+                "expiry_notification_processed_at": None,
+            },
+            {
+                "$set": {
+                    "expiry_notification_processed_at": utc_now(),
+                    "expiry_notification_delivered": delivered,
+                }
+            },
+        )
+
     async def expire_orders(self) -> int:
         now = utc_now()
         documents = await self.orders.find(

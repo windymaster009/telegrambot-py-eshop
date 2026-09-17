@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     payment_check_bot_token: SecretStr | None = None
     aba_payment_group_id: int | None = None
     aba_payment_bot_username: str = "PayWayByABA_bot"
+    payment_reader_api_id: int | None = Field(default=None, ge=1)
+    payment_reader_api_hash: SecretStr | None = None
+    payment_reader_session: SecretStr | None = None
 
     @field_validator("admin_ids", mode="before")
     @classmethod
@@ -46,7 +49,14 @@ class Settings(BaseSettings):
             return frozenset(int(item.strip()) for item in cleaned.split(",") if item.strip())
         return frozenset(value)  # type: ignore[arg-type]
 
-    @field_validator("payment_check_bot_token", "aba_payment_group_id", mode="before")
+    @field_validator(
+        "payment_check_bot_token",
+        "aba_payment_group_id",
+        "payment_reader_api_id",
+        "payment_reader_api_hash",
+        "payment_reader_session",
+        mode="before",
+    )
     @classmethod
     def blank_optional_values(cls, value: object) -> object:
         return None if value == "" else value
@@ -71,6 +81,15 @@ class Settings(BaseSettings):
     @classmethod
     def resolve_payment_qr_path(cls, value: Path) -> Path:
         return value if value.is_absolute() else PROJECT_ROOT / value
+
+
+    @property
+    def payment_reader_configured(self) -> bool:
+        return (
+            self.payment_reader_api_id is not None
+            and self.payment_reader_api_hash is not None
+            and self.payment_reader_session is not None
+        )
 
 
 @lru_cache

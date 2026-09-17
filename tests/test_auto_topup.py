@@ -141,6 +141,10 @@ async def test_expired_queue_does_not_match_and_old_event_cannot_be_replayed() -
             await shop.get_user_deposit(123456789, deposit.id)
         ).status == DepositStatus.EXPIRED.value
         assert (await shop.get_user(123456789)).balance_cents == 0
+        notifications = await shop.expired_deposits_awaiting_notification()
+        assert [item.id for item in notifications] == [deposit.id]
+        await shop.mark_expiry_notification_processed(deposit.id, delivered=True)
+        assert await shop.expired_deposits_awaiting_notification() == []
     finally:
         client.close()
 

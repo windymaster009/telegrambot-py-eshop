@@ -1,7 +1,11 @@
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from payment_listener import _listener_status, receive_aba_notification
+from payment_listener import (
+    _listener_status,
+    _notify_expired_topups_once,
+    receive_aba_notification,
+)
 
 
 def aba_message(*, chat_id: int, username: str = "PayWayByABA_bot") -> SimpleNamespace:
@@ -109,3 +113,24 @@ async def test_listener_status_reports_group_permissions_and_text_scan_mode() ->
 
     assert "Group-message access: <b>ready</b>" in status
     assert "Reader mode: <b>ABA text scan</b>" in status
+
+
+async def test_expired_queue_sends_failure_callback_once() -> None:
+    deposit = SimpleNamespace(id=12)
+    service = SimpleNamespace(
+        expire_deposits=AsyncMock(return_value=1),
+        expired_deposits_awaiting_notification=AsyncMock(return_value=[deposit]),
+        mark_expiry_notification_processed=AsyncMock(),
+    )
+    shop_bot = SimpleNamespace()
+
+    with patch(
+        "payment_listener.send_deposit_expired", new_callable=AsyncMock
+    ) as notify_customer:
+        processed = await _notify_expired_topups_once(service, shop_bot)
+
+    assert processed == 1
+    notify_customer.assert_awaited_once_with(shop_bot, deposit)
+    service.mark_expiry_notification_processed.assert_awaited_once_with(
+        12, delivered=True
+    )
