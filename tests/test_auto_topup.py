@@ -58,8 +58,8 @@ async def test_auto_topup_reserves_unique_amounts_and_credits_once() -> None:
         )
         second = await shop.create_deposit(987654321, 1000)
 
-        assert 1001 <= first.amount_cents <= 1099
-        assert 1001 <= second.amount_cents <= 1099
+        assert first.amount_cents == 1001
+        assert second.amount_cents == 1002
         assert same_user_retry.id == first.id
         assert first.amount_cents != second.amount_cents
         assert first.expires_at is not None
@@ -77,6 +77,18 @@ async def test_auto_topup_reserves_unique_amounts_and_credits_once() -> None:
         assert event["payer_name"] == "TEST CUSTOMER"
         assert event["paid_at_text"] == "Sep 17, 11:45 PM"
         assert event["apv"] == "456789"
+        assert await shop.payment_slots.find_one({"deposit_id": first.id}) is None
+
+        await shop.get_or_create_user(
+            TelegramUser(
+                id=111222333,
+                is_bot=False,
+                first_name="Third",
+                username="third_customer",
+            )
+        )
+        reused = await shop.create_deposit(111222333, 1000)
+        assert reused.amount_cents == 1001
 
         duplicate = await shop.process_aba_topup(payment("trx-one", first.amount_cents))
 
@@ -141,12 +153,37 @@ async def test_customer_can_cancel_unpaid_queue_and_create_another() -> None:
         cancelled = await shop.cancel_deposit(123456789, deposit.id)
 
         assert cancelled.status == DepositStatus.CANCELLED.value
+        slot = await shop.payment_slots.find_one({"deposit_id": deposit.id})
+        assert slot is not None
+        release_at = shop._datetime(slot["release_at"])
+        assert release_at is not None
+        assert release_at <= utc_now() + timedelta(minutes=15, seconds=1)
         result = await shop.process_aba_topup(payment("trx-cancelled", deposit.amount_cents))
         assert result.deposit is None
         assert (await shop.get_user(123456789)).balance_cents == 0
 
         replacement = await shop.create_deposit(123456789, 100)
         assert replacement.id != deposit.id
+        assert replacement.amount_cents == deposit.amount_cents + 1
+
+        await shop.deposits.update_one(
+            {"_id": deposit.id},
+            {"$set": {"reviewed_at": utc_now() - timedelta(minutes=16)}},
+        )
+        await shop.payment_slots.update_one(
+            {"deposit_id": deposit.id},
+            {"$set": {"release_at": utc_now() + timedelta(hours=24)}},
+        )
+        await shop.get_or_create_user(
+            TelegramUser(
+                id=555666777,
+                is_bot=False,
+                first_name="Reuse",
+                username="reuse_customer",
+            )
+        )
+        reused = await shop.create_deposit(555666777, 100)
+        assert reused.amount_cents == deposit.amount_cents
     finally:
         client.close()
 

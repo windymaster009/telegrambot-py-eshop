@@ -171,14 +171,19 @@ bundle. A Next.js server route, reverse proxy, or Cloudflare Access layer can ca
 This first automation applies only to wallet deposits. Product QR orders still use the existing
 payment-proof and admin-review flow.
 
-The shop reserves a unique payable amount for each top-up queue. For example, a requested `$10.00`
-top-up may ask the customer to pay `$10.07`. The ABA listener matches that exact amount, stores the
-ABA transaction ID once, approves the deposit, and credits the exact amount paid. Repeated ABA
-notifications cannot credit the wallet twice. A queue expires after `TOPUP_EXPIRY_MINUTES`, while
-its amount remains reserved for 24 hours to prevent a late bank notification from matching a newer
-queue. Each Telegram customer can have only one active top-up queue at a time. Unpaid queues become
-`expired` after 15 minutes by default. Customers can also use **Cancel top-up** before paying; a
-cancelled queue becomes `cancelled` and a new queue can be created immediately.
+The shop reserves the lowest available unique payable amount for each top-up queue. For example, a
+requested `$10.00` top-up asks the first customer to pay `$10.01`; another simultaneous `$10.00`
+queue uses `$10.02`. The ABA listener maps that exact amount to the queue and Telegram user, stores
+the ABA transaction ID once, approves the deposit, and credits the exact amount paid. Repeated ABA
+notifications cannot credit the wallet twice. A successfully confirmed amount is released
+immediately, so the next queue can reuse `$10.01` instead of the cents continually increasing.
+
+Each Telegram customer can have only one active top-up queue at a time. Unpaid queues become
+`expired` after `TOPUP_EXPIRY_MINUTES` (15 minutes by default). Cancelled and expired amounts stay
+quarantined for one additional expiry period to stop a late bank notification from matching a new
+queue. Customers can use **Cancel top-up** only before paying. A slot under manual proof review uses
+a 24-hour fail-safe reservation, or is released earlier when an administrator approves or rejects
+it.
 
 1. Create a new, dedicated bot with BotFather. Do not reuse a token that is still running through a
    webhook or another polling process.

@@ -324,7 +324,9 @@ class ShopService:
             raise ShopError("Deposit amount is too large")
         if await self.users.find_one({"_id": telegram_id}) is None:
             raise ShopError("User not found. Send /start first.")
-        await self.expire_deposits(user_id=telegram_id)
+        # Expire every stale queue before allocating a payment amount so slots
+        # held by other customers can enter their short safety quarantine.
+        await self.expire_deposits()
         now = utc_now()
         if self.auto_topup_enabled:
             existing = await self.deposits.find_one(
@@ -408,7 +410,7 @@ class ShopService:
         return await self._load_deposit(deposit_id)
 
     async def cancel_deposit(self, telegram_id: int, deposit_id: int) -> Deposit:
-        """Cancel an unpaid top-up without releasing its anti-replay amount slot."""
+        """Cancel an unpaid top-up and quarantine its amount against late payments."""
         await self.expire_deposits(user_id=telegram_id)
         now = utc_now()
         document = await self.deposits.find_one_and_update(
@@ -429,6 +431,7 @@ class ShopService:
         )
         if document is None:
             raise AlreadyProcessed
+        await self._quarantine_topup_slot(document, now=now)
         return await self._load_deposit(deposit_id)
 
     async def add_product(
@@ -655,6 +658,7 @@ class ShopService:
             )
             if updated is None:
                 return None
+            await self._release_topup_slot(updated, session=session)
             return await self._load_deposit(deposit_id, session=session)
 
         deposit = await self._in_transaction(operation)
@@ -676,6 +680,7 @@ class ShopService:
         )
         if document is None:
             raise AlreadyProcessed
+        await self._quarantine_topup_slot(document)
         return await self._load_deposit(deposit_id)
 
     async def process_aba_topup(self, payment: AbaPayment) -> TopupMatchResult:
@@ -791,6 +796,7 @@ class ShopService:
                 },
                 session=session,
             )
+            await self._release_topup_slot(updated, session=session)
             deposit = await self._load_deposit(deposit_id, session=session)
             return TopupMatchResult(payment.transaction_id, False, deposit)
 
@@ -819,19 +825,32 @@ class ShopService:
         }
         if user_id is not None:
             query["user_id"] = user_id
-        result = await self.deposits.update_many(
-            query,
-            {
-                "$set": {
-                    "status": DepositStatus.EXPIRED.value,
-                    "admin_note": (
-                        f"Automatic top-up expired after {self.topup_expiry_minutes} minutes"
-                    ),
-                    "reviewed_at": now,
-                }
-            },
-        )
-        return result.modified_count
+        documents = await self.deposits.find(query).to_list(length=None)
+        expired = 0
+        for document in documents:
+            updated = await self.deposits.find_one_and_update(
+                {
+                    "_id": int(document["_id"]),
+                    "status": DepositStatus.AWAITING_PROOF.value,
+                    "$or": query["$or"],
+                },
+                {
+                    "$set": {
+                        "status": DepositStatus.EXPIRED.value,
+                        "admin_note": (
+                            "Automatic top-up expired after "
+                            f"{self.topup_expiry_minutes} minutes"
+                        ),
+                        "reviewed_at": now,
+                    }
+                },
+                return_document=ReturnDocument.AFTER,
+            )
+            if updated is None:
+                continue
+            await self._quarantine_topup_slot(updated, now=now)
+            expired += 1
+        return expired
 
     async def expire_orders(self) -> int:
         now = utc_now()
@@ -930,14 +949,13 @@ class ShopService:
         self, requested_cents: int, deposit_id: int, now: datetime
     ) -> tuple[int, datetime]:
         expires_at = now + timedelta(minutes=self.topup_expiry_minutes)
+        # This is only a fail-safe TTL. Successful payments delete their slot
+        # immediately; cancelled/expired queues shorten it to a 15-minute hold.
         release_at = now + timedelta(hours=24)
-        for attempt in range(99):
-            offset = ((deposit_id + attempt - 1) % 99) + 1
+        for offset in range(1, 100):
             payable_cents = requested_cents + offset
             slot_id = f"USD:{payable_cents}"
-            await self.payment_slots.delete_one(
-                {"_id": slot_id, "release_at": {"$lte": now}}
-            )
+            await self._reclaim_topup_slot(slot_id, now)
             try:
                 await self.payment_slots.insert_one(
                     {
@@ -951,6 +969,92 @@ class ShopService:
                 continue
             return payable_cents, expires_at
         raise ShopError("Too many pending top-ups for this amount. Please try again later.")
+
+    async def _release_topup_slot(
+        self, deposit_document: Document, *, session: Any = None
+    ) -> None:
+        """Immediately make a successfully paid amount available for reuse."""
+        await self.payment_slots.delete_one(
+            {
+                "_id": f'USD:{int(deposit_document["amount_cents"])}',
+                "deposit_id": int(deposit_document["_id"]),
+            },
+            session=session,
+        )
+
+    async def _quarantine_topup_slot(
+        self,
+        deposit_document: Document,
+        *,
+        now: datetime | None = None,
+        session: Any = None,
+    ) -> None:
+        """Keep a failed queue's amount briefly so a late ABA message cannot hit a new queue."""
+        reference_time = now or utc_now()
+        release_at = reference_time + timedelta(minutes=self.topup_expiry_minutes)
+        await self.payment_slots.update_one(
+            {
+                "_id": f'USD:{int(deposit_document["amount_cents"])}',
+                "deposit_id": int(deposit_document["_id"]),
+                "$or": [
+                    {"release_at": {"$gt": release_at}},
+                    {"release_at": {"$exists": False}},
+                ],
+            },
+            {"$set": {"release_at": release_at}},
+            session=session,
+        )
+
+    async def _reclaim_topup_slot(self, slot_id: str, now: datetime) -> None:
+        """Remove a reusable slot, including slots left by older deployed versions."""
+        slot = await self.payment_slots.find_one({"_id": slot_id})
+        if slot is None:
+            return
+
+        deposit_id = slot.get("deposit_id")
+        release_at = self._datetime(slot.get("release_at"))
+        if release_at is not None and release_at <= now:
+            await self.payment_slots.delete_one(
+                {"_id": slot_id, "deposit_id": deposit_id}
+            )
+            return
+
+        deposit_document = await self.deposits.find_one({"_id": deposit_id})
+        if deposit_document is None:
+            await self.payment_slots.delete_one(
+                {"_id": slot_id, "deposit_id": deposit_id}
+            )
+            return
+
+        if deposit_document.get("status") == DepositStatus.APPROVED.value:
+            await self._release_topup_slot(deposit_document)
+            return
+
+        if deposit_document.get("status") in {
+            DepositStatus.CANCELLED.value,
+            DepositStatus.EXPIRED.value,
+            DepositStatus.REJECTED.value,
+        }:
+            terminal_at = (
+                self._datetime(deposit_document.get("reviewed_at"))
+                or self._datetime(deposit_document.get("expires_at"))
+                or self._datetime(deposit_document.get("created_at"))
+            )
+            if terminal_at is None:
+                return
+            safe_release_at = terminal_at + timedelta(
+                minutes=self.topup_expiry_minutes
+            )
+            if safe_release_at <= now:
+                await self.payment_slots.delete_one(
+                    {"_id": slot_id, "deposit_id": deposit_id}
+                )
+                return
+            if release_at is None or release_at > safe_release_at:
+                await self.payment_slots.update_one(
+                    {"_id": slot_id, "deposit_id": deposit_id},
+                    {"$set": {"release_at": safe_release_at}},
+                )
 
     async def _next_ids(self, counter: str, count: int = 1, *, session: Any = None) -> list[int]:
         document = await self.counters.find_one_and_update(

@@ -112,6 +112,7 @@ async def test_automatic_topup_shows_exact_reserved_amount_and_fallback_button()
     caption = message.answer_photo.await_args.kwargs["caption"]
     assert "TOPUP-7" in caption
     assert "$10.07" in caption
+    assert "not a fee" in caption
     markup = message.answer_photo.await_args.kwargs["reply_markup"]
     callbacks = [button.callback_data for row in markup.inline_keyboard for button in row]
     assert callbacks == ["deposit:proof:7", "deposit:cancel:7"]
