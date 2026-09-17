@@ -42,3 +42,16 @@ def test_bundled_payment_poster_is_resolved_from_project_root(monkeypatch) -> No
     assert settings.payment_qr_path.name == "payment_qr.png"
     assert settings.payment_qr_path.is_absolute()
     assert settings.payment_qr_path.is_file()
+
+
+def test_aba_listener_settings_are_normalized(monkeypatch) -> None:
+    set_required_environment(monkeypatch)
+    monkeypatch.setenv("PAYMENT_CHECK_BOT_TOKEN", "123456:CHECK_TOKEN")
+    monkeypatch.setenv("ABA_PAYMENT_GROUP_ID", "-1001234567890")
+    monkeypatch.setenv("ABA_PAYMENT_BOT_USERNAME", "@PayWayByABA_bot")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.payment_check_bot_token is not None
+    assert settings.aba_payment_group_id == -1001234567890
+    assert settings.aba_payment_bot_username == "paywaybyaba_bot"

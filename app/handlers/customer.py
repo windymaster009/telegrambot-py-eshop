@@ -11,6 +11,7 @@ from aiogram.types import CallbackQuery, FSInputFile, Message
 from app.config import Settings
 from app.i18n import TEXTS, tr
 from app.keyboards import (
+    deposit_payment_actions,
     language_choices,
     main_menu,
     payment_choices,
@@ -19,7 +20,7 @@ from app.keyboards import (
     review_deposit,
     review_order,
 )
-from app.models import Language
+from app.models import DepositStatus, Language, utc_now
 from app.money import format_money, parse_money
 from app.services import (
     AlreadyProcessed,
@@ -432,20 +433,70 @@ async def receive_deposit_amount(
         await message.answer(tr(user.language, "deposit_amount_invalid"))
         return
     deposit = await service.create_deposit(message.from_user.id, amount_cents)
+    if settings.auto_topup_enabled:
+        await state.clear()
+        caption = tr(
+            user.language,
+            "deposit_auto_caption",
+            deposit_id=deposit.id,
+            requested_amount=format_money(deposit.requested_amount_cents),
+            amount=format_money(deposit.amount_cents),
+            account_name=escape(settings.payment_account_name),
+            account_number=escape(settings.payment_account_number),
+            minutes=settings.payment_expiry_minutes,
+        )
+        reply_markup = deposit_payment_actions(deposit.id, user.language)
+    else:
+        await state.set_state(CustomerState.awaiting_deposit_proof)
+        await state.update_data(deposit_id=deposit.id)
+        caption = tr(
+            user.language,
+            "deposit_caption",
+            deposit_id=deposit.id,
+            amount=format_money(deposit.amount_cents),
+            account_name=escape(settings.payment_account_name),
+            account_number=escape(settings.payment_account_number),
+        )
+        reply_markup = None
+    if settings.payment_qr_path.is_file():
+        await message.answer_photo(
+            FSInputFile(settings.payment_qr_path), caption=caption, reply_markup=reply_markup
+        )
+    else:
+        await message.answer(caption, reply_markup=reply_markup)
+
+
+@router.callback_query(F.data.regexp(r"^deposit:proof:\d+$"))
+async def request_deposit_proof(
+    callback: CallbackQuery, state: FSMContext, service: ShopService
+) -> None:
+    deposit_id = int(callback.data.rsplit(":", 1)[1])  # type: ignore[union-attr]
+    deposit = await service.get_user_deposit(callback.from_user.id, deposit_id)
+    if deposit is None:
+        await callback.answer("Deposit not found.", show_alert=True)
+        return
+    if deposit.status == DepositStatus.APPROVED.value:
+        await callback.answer(
+            tr(deposit.user.language, "topup_already_approved"),  # type: ignore[union-attr]
+            show_alert=True,
+        )
+        return
+    if (
+        deposit.status != DepositStatus.AWAITING_PROOF.value
+        or (deposit.expires_at is not None and deposit.expires_at <= utc_now())
+    ):
+        await callback.answer(
+            tr(deposit.user.language, "topup_not_pending"),  # type: ignore[union-attr]
+            show_alert=True,
+        )
+        return
     await state.set_state(CustomerState.awaiting_deposit_proof)
     await state.update_data(deposit_id=deposit.id)
-    caption = tr(
-        user.language,
-        "deposit_caption",
-        deposit_id=deposit.id,
-        amount=format_money(amount_cents),
-        account_name=escape(settings.payment_account_name),
-        account_number=escape(settings.payment_account_number),
-    )
-    if settings.payment_qr_path.is_file():
-        await message.answer_photo(FSInputFile(settings.payment_qr_path), caption=caption)
-    else:
-        await message.answer(caption)
+    if callback.message:
+        await callback.message.answer(
+            tr(deposit.user.language, "send_proof")  # type: ignore[union-attr]
+        )
+    await callback.answer()
 
 
 @router.message(CustomerState.awaiting_deposit_proof, F.photo)
@@ -466,7 +517,15 @@ async def receive_deposit_proof(
         )
     except AlreadyProcessed:
         await state.clear()
-        await message.answer(tr(user.language, "already_processed"))
+        deposit = await service.get_user_deposit(
+            message.from_user.id, int(data["deposit_id"])
+        )
+        key = (
+            "topup_already_approved"
+            if deposit and deposit.status == DepositStatus.APPROVED.value
+            else "already_processed"
+        )
+        await message.answer(tr(user.language, key))
         return
     await state.clear()
     await message.answer(tr(user.language, "deposit_received"))
@@ -474,9 +533,19 @@ async def receive_deposit_proof(
 
 
 @router.message(CustomerState.awaiting_deposit_proof)
-async def deposit_proof_requires_photo(message: Message, service: ShopService) -> None:
+async def deposit_proof_requires_photo(
+    message: Message, state: FSMContext, service: ShopService
+) -> None:
     if message.from_user:
         user = await service.get_user(message.from_user.id)
+        data = await state.get_data()
+        deposit_id = data.get("deposit_id")
+        if deposit_id is not None:
+            deposit = await service.get_user_deposit(message.from_user.id, int(deposit_id))
+            if deposit and deposit.status == DepositStatus.APPROVED.value:
+                await state.clear()
+                await message.answer(tr(user.language, "topup_already_approved"))
+                return
         await message.answer(tr(user.language, "proof_photo_only"))
 
 

@@ -7,9 +7,9 @@ stock automatically after approval. The REST API is ready for a separate admin w
 ## Architecture
 
 ```text
-Telegram bot ─────┐
-                  ├── Shop service ── MongoDB Atlas
-Admin website ─ API
+Customer bot ───────┐
+ABA listener bot ───┼── Shop service ── MongoDB Atlas
+Admin website ── API┘
 ```
 
 The admin website must call the FastAPI backend. It must never receive `MONGO_URI` or connect to
@@ -23,6 +23,7 @@ balances stay consistent.
 - MongoDB transaction-based stock reservation
 - Cambodia QR payment proof with admin approval/rejection
 - Wallet deposits and balance purchases
+- Automatic ABA top-up matching with exact unique amounts and duplicate protection
 - Automatic delivery of account/key/code stock
 - English and Khmer customer interface
 - Telegram admin panel
@@ -75,6 +76,11 @@ PAYMENT_QR_PATH=assets/payment_qr.png
 PAYMENT_ACCOUNT_NAME=YOUR ABA ACCOUNT NAME
 PAYMENT_ACCOUNT_NUMBER=YOUR ACCOUNT NUMBER
 PAYMENT_EXPIRY_MINUTES=30
+
+AUTO_TOPUP_ENABLED=false
+PAYMENT_CHECK_BOT_TOKEN=
+ABA_PAYMENT_GROUP_ID=
+ABA_PAYMENT_BOT_USERNAME=PayWayByABA_bot
 ```
 
 Both `ADMIN_IDS=123,456` and `ADMIN_IDS=[123,456]` work. The bundled poster at
@@ -109,19 +115,20 @@ curl http://127.0.0.1:8000/api/v1/products
 Interactive API documentation is at `http://127.0.0.1:8000/docs`. Admin endpoints require an
 `X-API-Key` header.
 
-## 3. Run both with PM2 on Raspberry Pi
+## 3. Run with PM2 on Raspberry Pi
 
 Do not also run the systemd services or a Windows copy of the bot. Telegram long polling supports
 only one active bot process.
 
 ```bash
 cd /home/kevin/telegrambot-py-eshop
-pm2 delete telegram-shop telegram-shop-bot telegram-shop-api 2>/dev/null || true
+pm2 delete telegram-shop telegram-shop-bot telegram-shop-api telegram-payment-listener 2>/dev/null || true
 pm2 start ecosystem.config.cjs
 pm2 save
 pm2 status
 pm2 logs telegram-shop-bot --lines 100
 pm2 logs telegram-shop-api --lines 100
+pm2 logs telegram-payment-listener --lines 100
 ```
 
 For reboot persistence:
@@ -157,6 +164,55 @@ Protected with `X-API-Key`:
 
 Keep `API_KEY` in the admin website's server-side backend. Do not embed it in a public React/Vite
 bundle. A Next.js server route, reverse proxy, or Cloudflare Access layer can call this API safely.
+
+## Automatic ABA wallet top-ups
+
+This first automation applies only to wallet deposits. Product QR orders still use the existing
+payment-proof and admin-review flow.
+
+The shop reserves a unique payable amount for each top-up queue. For example, a requested `$10.00`
+top-up may ask the customer to pay `$10.07`. The ABA listener matches that exact amount, stores the
+ABA transaction ID once, approves the deposit, and credits the exact amount paid. Repeated ABA
+notifications cannot credit the wallet twice. A queue expires after `PAYMENT_EXPIRY_MINUTES`, while
+its amount remains reserved for 24 hours to prevent a late bank notification from matching a newer
+queue. Each Telegram customer can have only one active top-up queue at a time.
+
+1. Create a new, dedicated bot with BotFather. Do not reuse a token that is still running through a
+   webhook or another polling process.
+2. Open that bot in BotFather's bot settings and enable **Bot-to-Bot Communication Mode**.
+3. Add that bot to the private group where PayWay by ABA posts payment notifications. Make it an
+   admin, or use `/setprivacy` in BotFather and choose **Disable**, so it receives all ABA bot
+   messages.
+4. Put its token in `.env`, enable automatic top-ups, and leave the group ID empty initially:
+
+   ```dotenv
+   AUTO_TOPUP_ENABLED=true
+   PAYMENT_CHECK_BOT_TOKEN=your_dedicated_check_bot_token
+   ABA_PAYMENT_GROUP_ID=
+   ABA_PAYMENT_BOT_USERNAME=PayWayByABA_bot
+   ```
+
+5. Start only the listener, send `/chatid` in the ABA group from a Telegram account listed in
+   `ADMIN_IDS`, and copy the negative group ID it replies with:
+
+   ```bash
+   cd /home/kevin/telegrambot-py-eshop
+   pm2 start ecosystem.config.cjs --only telegram-payment-listener
+   pm2 logs telegram-payment-listener --lines 100
+   nano .env
+   ```
+
+6. Save that value as `ABA_PAYMENT_GROUP_ID=-100...`, then restart all shop processes:
+
+   ```bash
+   pm2 startOrRestart ecosystem.config.cjs --update-env
+   pm2 save
+   pm2 status
+   ```
+
+The listener accepts messages only from the configured group and exact ABA bot username. Keep the
+manual **Submit payment proof** button as a fallback if an ABA notification is delayed or its format
+changes.
 
 ## Telegram admin workflow
 

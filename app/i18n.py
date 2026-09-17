@@ -71,6 +71,18 @@ TEXTS: Mapping[str, Mapping[str, str]] = {
             "🏦 Account: <b>{account_name}</b> ({account_number})\n\n"
             "Scan the BLINK KHQR in this poster. After paying, send the payment screenshot here."
         ),
+        "deposit_auto_caption": (
+            "➕ <b>Top-up queue #{deposit_id}</b>\n"
+            "Requested: {requested_amount}\n"
+            "💵 Pay exactly: <b>{amount}</b>\n"
+            "🔖 Queue ID: <code>TOPUP-{deposit_id}</code>\n"
+            "🏦 Account: <b>{account_name}</b> ({account_number})\n\n"
+            "Scan the BLINK KHQR and enter the exact amount, including the cents. "
+            "The ABA notification will confirm this top-up automatically and credit the full "
+            "amount. This queue expires in {minutes} minutes. Only one queue can be active per "
+            "account.\n\n"
+            "If it is not confirmed after a few minutes, use the button below to send proof."
+        ),
         "deposit_received": (
             "✅ Deposit screenshot received. An admin will review it soon.\n"
             "Your balance will update after approval."
@@ -79,6 +91,9 @@ TEXTS: Mapping[str, Mapping[str, str]] = {
         "deposit_rejected": (
             "❌ Deposit #{deposit_id} was rejected. Contact support if you need help."
         ),
+        "submit_payment_proof": "📸 Submit payment proof",
+        "topup_not_pending": "This top-up is no longer pending.",
+        "topup_already_approved": "✅ This top-up has already been confirmed.",
         "order_rejected": (
             "❌ Payment for order #{order_id} was rejected. Reserved stock has been released."
         ),
@@ -163,9 +178,23 @@ TEXTS: Mapping[str, Mapping[str, str]] = {
             "🏦 គណនី៖ <b>{account_name}</b> ({account_number})\n\n"
             "ស្កេន BLINK KHQR ក្នុងផ្ទាំងនេះ។ បន្ទាប់ពីបង់ សូមផ្ញើរូបថតបង្កាន់ដៃមកទីនេះ។"
         ),
+        "deposit_auto_caption": (
+            "➕ <b>ជួរបញ្ចូលប្រាក់ #{deposit_id}</b>\n"
+            "ចំនួនដែលបានស្នើ៖ {requested_amount}\n"
+            "💵 បង់ឱ្យបានត្រឹមត្រូវ៖ <b>{amount}</b>\n"
+            "🔖 លេខសម្គាល់ជួរ៖ <code>TOPUP-{deposit_id}</code>\n"
+            "🏦 គណនី៖ <b>{account_name}</b> ({account_number})\n\n"
+            "ស្កេន BLINK KHQR ហើយបញ្ចូលចំនួនទឹកប្រាក់ឱ្យត្រឹមត្រូវ រួមទាំងខ្ទង់សេន។ "
+            "សារ ABA នឹងផ្ទៀងផ្ទាត់ និងបញ្ចូលទឹកប្រាក់ទាំងមូលទៅសមតុល្យដោយស្វ័យប្រវត្តិ។ "
+            "ជួរនេះផុតកំណត់ក្នុង {minutes} នាទី។ គណនីនីមួយៗអាចមានជួរសកម្មតែមួយប៉ុណ្ណោះ។\n\n"
+            "បើមិនទាន់បានបញ្ជាក់ក្រោយពីប៉ុន្មាននាទី សូមប្រើប៊ូតុងខាងក្រោមដើម្បីផ្ញើបង្កាន់ដៃ។"
+        ),
         "deposit_received": "✅ បានទទួលបង្កាន់ដៃបញ្ចូលប្រាក់។ អ្នកគ្រប់គ្រងនឹងពិនិត្យឆាប់ៗ។",
         "deposit_approved": "✅ ការបញ្ចូលប្រាក់ #{deposit_id} ត្រូវបានអនុម័ត។ សមតុល្យថ្មី៖ {balance}។",
         "deposit_rejected": "❌ ការបញ្ចូលប្រាក់ #{deposit_id} ត្រូវបានបដិសេធ។ សូមទាក់ទងអ្នកគ្រប់គ្រង។",
+        "submit_payment_proof": "📸 ផ្ញើបង្កាន់ដៃទូទាត់",
+        "topup_not_pending": "ការបញ្ចូលប្រាក់នេះលែងរង់ចាំទៀតហើយ។",
+        "topup_already_approved": "✅ ការបញ្ចូលប្រាក់នេះត្រូវបានបញ្ជាក់រួចហើយ។",
         "order_rejected": "❌ ការទូទាត់សម្រាប់ការបញ្ជាទិញ #{order_id} ត្រូវបានបដិសេធ។",
         "contact": "📞 ត្រូវការជំនួយ? ទាក់ទងអ្នកគ្រប់គ្រង៖ {support}",
         "language": "🌐 សូមជ្រើសរើសភាសា៖",

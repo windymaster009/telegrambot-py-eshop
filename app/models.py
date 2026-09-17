@@ -96,8 +96,13 @@ class Deposit:
     user_id: int
     amount_cents: int
     status: str
+    requested_amount_cents: int = 0
     payment_proof_file_id: str | None = None
     admin_note: str | None = None
+    expires_at: datetime | None = None
+    aba_transaction_id: str | None = None
+    aba_payer_name: str | None = None
+    matched_at: datetime | None = None
     created_at: datetime = field(default_factory=utc_now)
     reviewed_at: datetime | None = None
     user: User | None = None

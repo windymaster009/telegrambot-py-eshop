@@ -77,6 +77,19 @@ def payment_choices(
     return builder.as_markup()
 
 
+def deposit_payment_actions(deposit_id: int, language: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=tr(language, "submit_payment_proof"),
+                    callback_data=f"deposit:proof:{deposit_id}",
+                )
+            ]
+        ]
+    )
+
+
 def language_choices() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[

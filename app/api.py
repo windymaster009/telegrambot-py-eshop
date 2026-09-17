@@ -73,6 +73,7 @@ def create_app(
                 active_database.db,
                 active_database.client,
                 resolved_settings.payment_expiry_minutes,
+                auto_topup_enabled=resolved_settings.auto_topup_enabled,
             )
         if active_bot is None:
             active_bot = Bot(
@@ -333,10 +334,15 @@ def deposit_response(deposit: Deposit) -> DepositResponse:
     return DepositResponse(
         id=deposit.id,
         user=user_response(deposit.user),
+        requested_amount_cents=deposit.requested_amount_cents,
         amount_cents=deposit.amount_cents,
         status=deposit.status,
         payment_proof_file_id=deposit.payment_proof_file_id,
         admin_note=deposit.admin_note,
+        expires_at=deposit.expires_at,
+        aba_transaction_id=deposit.aba_transaction_id,
+        aba_payer_name=deposit.aba_payer_name,
+        matched_at=deposit.matched_at,
         created_at=deposit.created_at,
         reviewed_at=deposit.reviewed_at,
     )

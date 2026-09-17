@@ -7,7 +7,9 @@ from typing import Any, TypeVar
 
 from aiogram.types import User as TelegramUser
 from pymongo import ASCENDING, DESCENDING, ReturnDocument
+from pymongo.errors import DuplicateKeyError
 
+from app.aba_payments import AbaPayment
 from app.models import (
     Deposit,
     DepositStatus,
@@ -50,6 +52,13 @@ class ProductView:
     stock: int
 
 
+@dataclass(frozen=True)
+class TopupMatchResult:
+    transaction_id: str
+    duplicate: bool
+    deposit: Deposit | None
+
+
 class ShopService:
     def __init__(
         self,
@@ -57,11 +66,13 @@ class ShopService:
         client: Any,
         payment_expiry_minutes: int,
         *,
+        auto_topup_enabled: bool = False,
         use_transactions: bool = True,
     ) -> None:
         self.database = database
         self.client = client
         self.payment_expiry_minutes = payment_expiry_minutes
+        self.auto_topup_enabled = auto_topup_enabled
         self.use_transactions = use_transactions
 
         self.users = database["users"]
@@ -69,6 +80,8 @@ class ShopService:
         self.stock_items = database["stock_items"]
         self.orders = database["orders"]
         self.deposits = database["deposits"]
+        self.payment_slots = database["payment_slots"]
+        self.payment_events = database["payment_events"]
         self.counters = database["counters"]
 
     async def get_or_create_user(self, telegram_user: TelegramUser) -> User:
@@ -301,21 +314,60 @@ class ShopService:
     async def create_deposit(self, telegram_id: int, amount_cents: int) -> Deposit:
         if amount_cents <= 0:
             raise ShopError("Deposit amount must be positive")
+        if amount_cents > 99_999_900:
+            raise ShopError("Deposit amount is too large")
         if await self.users.find_one({"_id": telegram_id}) is None:
             raise ShopError("User not found. Send /start first.")
+        now = utc_now()
+        if self.auto_topup_enabled:
+            existing = await self.deposits.find_one(
+                {
+                    "user_id": telegram_id,
+                    "status": {
+                        "$in": [
+                            DepositStatus.AWAITING_PROOF.value,
+                            DepositStatus.AWAITING_REVIEW.value,
+                        ]
+                    },
+                    "expires_at": {"$gt": now},
+                },
+                sort=[("created_at", DESCENDING)],
+            )
+            if existing is not None:
+                return await self._load_deposit(int(existing["_id"]))
+
         deposit_id = (await self._next_ids("deposits"))[0]
+        payable_cents = amount_cents
+        expires_at = None
+        if self.auto_topup_enabled:
+            payable_cents, expires_at = await self._reserve_topup_amount(
+                amount_cents, deposit_id, now
+            )
         await self.deposits.insert_one(
             {
                 "_id": deposit_id,
                 "user_id": telegram_id,
-                "amount_cents": amount_cents,
+                "requested_amount_cents": amount_cents,
+                "amount_cents": payable_cents,
                 "status": DepositStatus.AWAITING_PROOF.value,
                 "payment_proof_file_id": None,
                 "admin_note": None,
-                "created_at": utc_now(),
+                "expires_at": expires_at,
+                "aba_transaction_id": None,
+                "aba_payer_name": None,
+                "matched_at": None,
+                "created_at": now,
                 "reviewed_at": None,
             }
         )
+        return await self._load_deposit(deposit_id)
+
+    async def get_user_deposit(self, telegram_id: int, deposit_id: int) -> Deposit | None:
+        document = await self.deposits.find_one(
+            {"_id": deposit_id, "user_id": telegram_id}
+        )
+        if document is None:
+            return None
         return await self._load_deposit(deposit_id)
 
     async def submit_deposit_proof(
@@ -326,6 +378,10 @@ class ShopService:
                 "_id": deposit_id,
                 "user_id": telegram_id,
                 "status": DepositStatus.AWAITING_PROOF.value,
+                "$or": [
+                    {"expires_at": None},
+                    {"expires_at": {"$gt": utc_now()}},
+                ],
             },
             {
                 "$set": {
@@ -585,6 +641,139 @@ class ShopService:
             raise AlreadyProcessed
         return await self._load_deposit(deposit_id)
 
+    async def process_aba_topup(self, payment: AbaPayment) -> TopupMatchResult:
+        async def operation(session: Any) -> TopupMatchResult:
+            now = utc_now()
+            existing = await self.payment_events.find_one(
+                {"_id": payment.transaction_id}, session=session
+            )
+            if existing is not None:
+                if existing.get("matched_deposit_id") is not None:
+                    deposit = await self._load_deposit(
+                        int(existing["matched_deposit_id"]), session=session
+                    )
+                    return TopupMatchResult(payment.transaction_id, True, deposit)
+                return TopupMatchResult(payment.transaction_id, True, None)
+
+            await self.payment_events.insert_one(
+                {
+                    "_id": payment.transaction_id,
+                    "status": "unmatched",
+                    "currency": payment.currency,
+                    "amount_minor": payment.amount_minor,
+                    "payer_name": payment.payer_name,
+                    "payer_account": payment.payer_account,
+                    "apv": payment.apv,
+                    "channel": payment.channel,
+                    "merchant": payment.merchant,
+                    "received_at": now,
+                    "matched_deposit_id": None,
+                    "matched_at": None,
+                },
+                session=session,
+            )
+
+            if payment.currency != "USD":
+                return TopupMatchResult(payment.transaction_id, False, None)
+
+            deposit_document = await self.deposits.find_one(
+                {
+                    "amount_cents": payment.amount_minor,
+                    "status": {
+                        "$in": [
+                            DepositStatus.AWAITING_PROOF.value,
+                            DepositStatus.AWAITING_REVIEW.value,
+                        ]
+                    },
+                    "expires_at": {"$gt": now},
+                    "aba_transaction_id": None,
+                },
+                sort=[("created_at", ASCENDING)],
+                session=session,
+            )
+            if deposit_document is None:
+                return TopupMatchResult(payment.transaction_id, False, None)
+
+            deposit_id = int(deposit_document["_id"])
+            updated = await self.deposits.find_one_and_update(
+                {
+                    "_id": deposit_id,
+                    "status": {
+                        "$in": [
+                            DepositStatus.AWAITING_PROOF.value,
+                            DepositStatus.AWAITING_REVIEW.value,
+                        ]
+                    },
+                    "expires_at": {"$gt": now},
+                    "aba_transaction_id": None,
+                },
+                {
+                    "$set": {
+                        "status": DepositStatus.APPROVED.value,
+                        "aba_transaction_id": payment.transaction_id,
+                        "aba_payer_name": payment.payer_name,
+                        "matched_at": now,
+                        "reviewed_at": now,
+                        "admin_note": "Automatically confirmed by ABA PayWay",
+                    }
+                },
+                return_document=ReturnDocument.AFTER,
+                session=session,
+            )
+            if updated is None:
+                return TopupMatchResult(payment.transaction_id, False, None)
+
+            user_update = await self.users.update_one(
+                {"_id": int(updated["user_id"])},
+                {
+                    "$inc": {"balance_cents": int(updated["amount_cents"])},
+                    "$set": {"updated_at": now},
+                },
+                session=session,
+            )
+            if user_update.modified_count != 1:
+                raise ShopError("Deposit user not found")
+
+            await self.payment_events.update_one(
+                {"_id": payment.transaction_id, "matched_deposit_id": None},
+                {
+                    "$set": {
+                        "status": "matched",
+                        "matched_deposit_id": deposit_id,
+                        "matched_at": now,
+                    }
+                },
+                session=session,
+            )
+            deposit = await self._load_deposit(deposit_id, session=session)
+            return TopupMatchResult(payment.transaction_id, False, deposit)
+
+        try:
+            return await self._in_transaction(operation)
+        except DuplicateKeyError:
+            existing = await self.payment_events.find_one({"_id": payment.transaction_id})
+            if existing and existing.get("matched_deposit_id") is not None:
+                deposit = await self._load_deposit(int(existing["matched_deposit_id"]))
+                return TopupMatchResult(payment.transaction_id, True, deposit)
+            return TopupMatchResult(payment.transaction_id, True, None)
+
+    async def expire_deposits(self) -> int:
+        now = utc_now()
+        result = await self.deposits.update_many(
+            {
+                "status": DepositStatus.AWAITING_PROOF.value,
+                "expires_at": {"$lt": now},
+            },
+            {
+                "$set": {
+                    "status": DepositStatus.REJECTED.value,
+                    "admin_note": "Automatic top-up window expired",
+                    "reviewed_at": now,
+                }
+            },
+        )
+        return result.modified_count
+
     async def expire_orders(self) -> int:
         now = utc_now()
         documents = await self.orders.find(
@@ -677,6 +866,32 @@ class ShopService:
             {"$set": {"reserved_order_id": None}},
             session=session,
         )
+
+    async def _reserve_topup_amount(
+        self, requested_cents: int, deposit_id: int, now: datetime
+    ) -> tuple[int, datetime]:
+        expires_at = now + timedelta(minutes=self.payment_expiry_minutes)
+        release_at = now + timedelta(hours=24)
+        for attempt in range(99):
+            offset = ((deposit_id + attempt - 1) % 99) + 1
+            payable_cents = requested_cents + offset
+            slot_id = f"USD:{payable_cents}"
+            await self.payment_slots.delete_one(
+                {"_id": slot_id, "release_at": {"$lte": now}}
+            )
+            try:
+                await self.payment_slots.insert_one(
+                    {
+                        "_id": slot_id,
+                        "deposit_id": deposit_id,
+                        "expires_at": expires_at,
+                        "release_at": release_at,
+                    }
+                )
+            except DuplicateKeyError:
+                continue
+            return payable_cents, expires_at
+        raise ShopError("Too many pending top-ups for this amount. Please try again later.")
 
     async def _next_ids(self, counter: str, count: int = 1, *, session: Any = None) -> list[int]:
         document = await self.counters.find_one_and_update(
@@ -809,8 +1024,15 @@ class ShopService:
             user_id=int(document["user_id"]),
             amount_cents=int(document["amount_cents"]),
             status=str(document["status"]),
+            requested_amount_cents=int(
+                document.get("requested_amount_cents", document["amount_cents"])
+            ),
             payment_proof_file_id=document.get("payment_proof_file_id"),
             admin_note=document.get("admin_note"),
+            expires_at=ShopService._datetime(document.get("expires_at")),
+            aba_transaction_id=document.get("aba_transaction_id"),
+            aba_payer_name=document.get("aba_payer_name"),
+            matched_at=ShopService._datetime(document.get("matched_at")),
             created_at=ShopService._datetime(document.get("created_at")) or utc_now(),
             reviewed_at=ShopService._datetime(document.get("reviewed_at")),
             user=user,

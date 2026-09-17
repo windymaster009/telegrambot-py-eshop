@@ -62,10 +62,15 @@ class OrderResponse(BaseModel):
 class DepositResponse(BaseModel):
     id: int
     user: UserResponse
+    requested_amount_cents: int
     amount_cents: int
     status: str
     payment_proof_file_id: str | None
     admin_note: str | None
+    expires_at: datetime | None
+    aba_transaction_id: str | None
+    aba_payer_name: str | None
+    matched_at: datetime | None
     created_at: datetime
     reviewed_at: datetime | None
 

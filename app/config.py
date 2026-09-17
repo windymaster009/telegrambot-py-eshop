@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     payment_account_number: str = "000 000 000"
     payment_expiry_minutes: int = Field(default=30, ge=5, le=1440)
 
+    auto_topup_enabled: bool = False
+    payment_check_bot_token: SecretStr | None = None
+    aba_payment_group_id: int | None = None
+    aba_payment_bot_username: str = "PayWayByABA_bot"
+
     @field_validator("admin_ids", mode="before")
     @classmethod
     def parse_admin_ids(cls, value: object) -> frozenset[int]:
@@ -39,6 +44,19 @@ class Settings(BaseSettings):
                 cleaned = cleaned[1:-1]
             return frozenset(int(item.strip()) for item in cleaned.split(",") if item.strip())
         return frozenset(value)  # type: ignore[arg-type]
+
+    @field_validator("payment_check_bot_token", "aba_payment_group_id", mode="before")
+    @classmethod
+    def blank_optional_values(cls, value: object) -> object:
+        return None if value == "" else value
+
+    @field_validator("aba_payment_bot_username")
+    @classmethod
+    def normalize_bot_username(cls, value: str) -> str:
+        cleaned = value.strip().removeprefix("@").lower()
+        if not cleaned:
+            raise ValueError("ABA_PAYMENT_BOT_USERNAME cannot be empty")
+        return cleaned
 
     @field_validator("mongo_db_name")
     @classmethod

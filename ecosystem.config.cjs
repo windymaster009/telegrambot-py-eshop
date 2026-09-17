@@ -19,5 +19,15 @@ module.exports = {
       max_memory_restart: "350M",
       time: true,
     },
+    {
+      name: "telegram-payment-listener",
+      cwd: __dirname,
+      script: "payment_listener.py",
+      interpreter: `${__dirname}/.venv/bin/python`,
+      autorestart: true,
+      stop_exit_codes: [0],
+      max_memory_restart: "250M",
+      time: true,
+    },
   ],
 };

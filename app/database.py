@@ -49,6 +49,15 @@ class Database:
 
         await self.db.deposits.create_index([("status", ASCENDING), ("created_at", ASCENDING)])
         await self.db.deposits.create_index([("user_id", ASCENDING), ("created_at", DESCENDING)])
+        await self.db.deposits.create_index(
+            [("amount_cents", ASCENDING), ("status", ASCENDING), ("expires_at", ASCENDING)]
+        )
+
+        await self.db.payment_slots.create_index("release_at", expireAfterSeconds=0)
+        await self.db.payment_events.create_index(
+            [("status", ASCENDING), ("received_at", DESCENDING)]
+        )
+        await self.db.payment_events.create_index("matched_deposit_id")
 
     async def _synchronize_counters(self) -> None:
         for name in ("products", "stock_items", "orders", "deposits"):
