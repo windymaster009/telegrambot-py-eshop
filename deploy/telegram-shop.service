@@ -1,0 +1,19 @@
+[Unit]
+Description=Windy Telegram Shop Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kevin
+WorkingDirectory=/home/kevin/telegrambot-py-eshop
+EnvironmentFile=/home/kevin/telegrambot-py-eshop/.env
+ExecStart=/home/kevin/telegrambot-py-eshop/.venv/bin/python main.py
+Restart=always
+RestartSec=5
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
+
