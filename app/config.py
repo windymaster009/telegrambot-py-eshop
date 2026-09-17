@@ -1,18 +1,24 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Annotated
 
-from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, SecretStr, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    bot_token: str
-    admin_ids: frozenset[int] = Field(default_factory=frozenset)
+    bot_token: SecretStr
+    # NoDecode lets the validator accept either 1,2 or [1,2].
+    admin_ids: Annotated[frozenset[int], NoDecode] = Field(default_factory=frozenset)
     support_username: str = "@support"
     shop_name: str = "Windy Shop"
-    database_url: str = "sqlite+aiosqlite:///shop.db"
+
+    mongo_uri: SecretStr
+    mongo_db_name: str = "eshop"
+    api_key: SecretStr = Field(min_length=32)
+
     payment_qr_path: Path = Path("assets/payment_qr.png")
     payment_account_name: str = "YOUR NAME"
     payment_account_number: str = "000 000 000"
@@ -23,9 +29,22 @@ class Settings(BaseSettings):
     def parse_admin_ids(cls, value: object) -> frozenset[int]:
         if value in (None, ""):
             return frozenset()
+        if isinstance(value, int):
+            return frozenset({value})
         if isinstance(value, str):
-            return frozenset(int(item.strip()) for item in value.split(",") if item.strip())
+            cleaned = value.strip()
+            if cleaned.startswith("[") and cleaned.endswith("]"):
+                cleaned = cleaned[1:-1]
+            return frozenset(int(item.strip()) for item in cleaned.split(",") if item.strip())
         return frozenset(value)  # type: ignore[arg-type]
+
+    @field_validator("mongo_db_name")
+    @classmethod
+    def validate_database_name(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned or any(character in cleaned for character in '/\\."$'):
+            raise ValueError("MONGO_DB_NAME contains an invalid character")
+        return cleaned
 
 
 @lru_cache
