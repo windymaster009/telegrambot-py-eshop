@@ -1,7 +1,7 @@
-# Payment QR
+# Payment poster
 
-Place the real shop payment QR image in this folder as `payment_qr.png`.
+`payment_qr.png` is the customer-facing BLINK/KHQR payment poster used by both product checkout and
+wallet deposits.
 
-That image is ignored by Git so bank details are not published accidentally. You can use another
-filename by changing `PAYMENT_QR_PATH` in `.env`.
-
+To replace it, keep the same filename or change `PAYMENT_QR_PATH` in `.env`. Always scan-test a
+replacement before deploying it.
