@@ -1,0 +1,6 @@
+aiogram==3.22.0
+SQLAlchemy==2.0.43
+aiosqlite==0.21.0
+pydantic-settings==2.10.1
+greenlet==3.2.4
+
