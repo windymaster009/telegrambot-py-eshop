@@ -32,3 +32,13 @@ def test_json_style_admin_ids_from_environment(monkeypatch) -> None:
     settings = Settings(_env_file=None)
 
     assert settings.admin_ids == frozenset({123456789, 987654321})
+
+
+def test_bundled_payment_poster_is_resolved_from_project_root(monkeypatch) -> None:
+    set_required_environment(monkeypatch)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.payment_qr_path.name == "payment_qr.png"
+    assert settings.payment_qr_path.is_absolute()
+    assert settings.payment_qr_path.is_file()
