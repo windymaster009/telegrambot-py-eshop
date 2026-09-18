@@ -3,6 +3,7 @@ from __future__ import annotations
 from html import escape
 
 from aiogram import Bot, F, Router
+from aiogram.exceptions import TelegramAPIError
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
@@ -10,8 +11,9 @@ from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.config import Settings
 from app.i18n import tr
-from app.keyboards import admin_home, admin_product_actions, admin_products
+from app.keyboards import admin_home, admin_product_actions, admin_products, review_refund
 from app.money import format_money, parse_money
+from app.notifications import send_refund_paid, send_refund_rejected
 from app.services import (
     AlreadyProcessed,
     NotEnoughStock,
@@ -490,3 +492,121 @@ async def reject_deposit(
         await callback.message.edit_reply_markup(reply_markup=None)
         await callback.message.reply(f"❌ Deposit #{deposit.id} rejected.")
     await callback.answer("Rejected")
+
+
+@router.callback_query(F.data == "admin:pending_refunds")
+async def pending_refunds(
+    callback: CallbackQuery, service: ShopService, settings: Settings
+) -> None:
+    if await deny(callback, settings):
+        return
+    refunds = await service.pending_refunds()
+    builder = InlineKeyboardBuilder()
+    for refund in refunds:
+        builder.button(
+            text=(f"#{refund.id} {refund.user.full_name} — {format_money(refund.amount_cents)}"),
+            callback_data=f"admin:review_refund:{refund.id}",
+        )
+    builder.button(text="⬅️ Admin", callback_data="admin:home")
+    builder.adjust(1)
+    if callback.message:
+        await callback.message.edit_text(
+            f"💸 <b>Pending refund tickets ({len(refunds)})</b>",
+            reply_markup=builder.as_markup(),
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data.regexp(r"^admin:review_refund:\d+$"))
+async def review_refund_detail(
+    callback: CallbackQuery, service: ShopService, settings: Settings, bot: Bot
+) -> None:
+    if await deny(callback, settings):
+        return
+    refund_id = int(callback.data.rsplit(":", 1)[1])  # type: ignore[union-attr]
+    refunds = await service.pending_refunds(limit=100)
+    refund = next((item for item in refunds if item.id == refund_id), None)
+    if refund is None or refund.user is None:
+        await callback.answer("Refund ticket is no longer pending", show_alert=True)
+        return
+    username = f"@{refund.user.username}" if refund.user.username else refund.user.full_name
+    caption = (
+        f"💸 <b>Refund ticket #{refund.id}</b>\n"
+        f"Customer: {escape(username)} (<code>{refund.user.telegram_id}</code>)\n"
+        f"Refund amount: <b>{format_money(refund.amount_cents)}</b>\n"
+        f"Available balance after hold: <b>{format_money(refund.user.balance_cents)}</b>\n\n"
+        "Pay this QR manually before pressing Mark paid."
+    )
+    if refund.qr_file_type == "document":
+        await bot.send_document(
+            callback.from_user.id,
+            refund.qr_file_id,
+            caption=caption,
+            reply_markup=review_refund(refund.id),
+        )
+    else:
+        await bot.send_photo(
+            callback.from_user.id,
+            refund.qr_file_id,
+            caption=caption,
+            reply_markup=review_refund(refund.id),
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data.regexp(r"^admin:pay_refund:\d+$"))
+async def pay_refund(
+    callback: CallbackQuery, service: ShopService, settings: Settings, bot: Bot
+) -> None:
+    if await deny(callback, settings):
+        return
+    refund_id = int(callback.data.rsplit(":", 1)[1])  # type: ignore[union-attr]
+    try:
+        refund = await service.mark_refund_paid(
+            refund_id,
+            reviewed_by=callback.from_user.id,
+        )
+    except AlreadyProcessed:
+        await callback.answer("Refund ticket already processed", show_alert=True)
+        return
+    notification_sent = True
+    try:
+        await send_refund_paid(bot, refund)
+    except (TelegramAPIError, OSError):
+        notification_sent = False
+    if callback.message:
+        await callback.message.edit_reply_markup(reply_markup=None)
+        text = f"✅ Refund #{refund.id} marked paid — {format_money(refund.amount_cents)}."
+        if not notification_sent:
+            text += "\n⚠️ The customer notification could not be delivered."
+        await callback.message.reply(text)
+    await callback.answer("Marked as paid")
+
+
+@router.callback_query(F.data.regexp(r"^admin:reject_refund:\d+$"))
+async def reject_refund(
+    callback: CallbackQuery, service: ShopService, settings: Settings, bot: Bot
+) -> None:
+    if await deny(callback, settings):
+        return
+    refund_id = int(callback.data.rsplit(":", 1)[1])  # type: ignore[union-attr]
+    try:
+        refund = await service.reject_refund(
+            refund_id,
+            reviewed_by=callback.from_user.id,
+        )
+    except AlreadyProcessed:
+        await callback.answer("Refund ticket already processed", show_alert=True)
+        return
+    notification_sent = True
+    try:
+        await send_refund_rejected(bot, refund)
+    except (TelegramAPIError, OSError):
+        notification_sent = False
+    if callback.message:
+        await callback.message.edit_reply_markup(reply_markup=None)
+        text = f"❌ Refund #{refund.id} rejected; {format_money(refund.amount_cents)} restored."
+        if not notification_sent:
+            text += "\n⚠️ The customer notification could not be delivered."
+        await callback.message.reply(text)
+    await callback.answer("Rejected and restored")

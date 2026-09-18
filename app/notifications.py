@@ -3,7 +3,7 @@ from html import escape
 from aiogram import Bot
 
 from app.i18n import tr
-from app.models import Deposit, Order
+from app.models import Deposit, Order, RefundRequest
 from app.money import format_money
 from app.services import delivery_text, product_name
 
@@ -67,5 +67,34 @@ async def send_deposit_expired(bot: Bot, deposit: Deposit, *, minutes: int) -> N
             "topup_failed",
             deposit_id=deposit.id,
             minutes=minutes,
+        ),
+    )
+
+
+async def send_refund_paid(bot: Bot, refund: RefundRequest) -> None:
+    if refund.user is None:
+        raise RuntimeError("Refund user is not loaded")
+    await bot.send_message(
+        refund.user.telegram_id,
+        tr(
+            refund.user.language,
+            "refund_paid",
+            refund_id=refund.id,
+            amount=format_money(refund.amount_cents),
+        ),
+    )
+
+
+async def send_refund_rejected(bot: Bot, refund: RefundRequest) -> None:
+    if refund.user is None:
+        raise RuntimeError("Refund user is not loaded")
+    await bot.send_message(
+        refund.user.telegram_id,
+        tr(
+            refund.user.language,
+            "refund_rejected",
+            refund_id=refund.id,
+            amount=format_money(refund.amount_cents),
+            balance=format_money(refund.user.balance_cents),
         ),
     )

@@ -75,6 +75,19 @@ class DepositResponse(BaseModel):
     reviewed_at: datetime | None
 
 
+class RefundResponse(BaseModel):
+    id: int
+    user: UserResponse
+    amount_cents: int
+    status: str
+    qr_file_id: str
+    qr_file_type: str
+    admin_note: str | None
+    reviewed_by: int | None
+    created_at: datetime
+    reviewed_at: datetime | None
+
+
 class StockAddedResponse(BaseModel):
     product_id: int
     added: int
@@ -87,4 +100,9 @@ class OrderActionResponse(BaseModel):
 
 class DepositActionResponse(BaseModel):
     deposit: DepositResponse
+    notification_sent: bool
+
+
+class RefundActionResponse(BaseModel):
+    refund: RefundResponse
     notification_sent: bool

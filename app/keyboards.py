@@ -96,6 +96,28 @@ def deposit_payment_actions(deposit_id: int, language: str) -> InlineKeyboardMar
     )
 
 
+def balance_actions(
+    language: str,
+    balance_cents: int,
+    *,
+    pending_refund_id: int | None = None,
+) -> InlineKeyboardMarkup | None:
+    if pending_refund_id is not None:
+        return None
+    if balance_cents <= 0:
+        return None
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=tr(language, "request_refund"),
+                    callback_data="refund:start",
+                )
+            ]
+        ]
+    )
+
+
 def language_choices() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -118,6 +140,7 @@ def admin_home() -> InlineKeyboardMarkup:
                 ),
                 InlineKeyboardButton(text="💰 Deposits", callback_data="admin:pending_deposits"),
             ],
+            [InlineKeyboardButton(text="💸 Refund tickets", callback_data="admin:pending_refunds")],
         ]
     )
 
@@ -179,6 +202,22 @@ def review_deposit(deposit_id: int) -> InlineKeyboardMarkup:
                 ),
                 InlineKeyboardButton(
                     text="❌ Reject", callback_data=f"admin:reject_deposit:{deposit_id}"
+                ),
+            ]
+        ]
+    )
+
+
+def review_refund(refund_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="✅ Mark paid", callback_data=f"admin:pay_refund:{refund_id}"
+                ),
+                InlineKeyboardButton(
+                    text="❌ Reject & restore",
+                    callback_data=f"admin:reject_refund:{refund_id}",
                 ),
             ]
         ]

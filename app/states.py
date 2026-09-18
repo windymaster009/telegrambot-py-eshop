@@ -6,6 +6,8 @@ class CustomerState(StatesGroup):
     awaiting_order_proof = State()
     entering_deposit_amount = State()
     awaiting_deposit_proof = State()
+    entering_refund_amount = State()
+    awaiting_refund_qr = State()
 
 
 class AdminState(StatesGroup):

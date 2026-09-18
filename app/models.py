@@ -36,6 +36,12 @@ class DepositStatus(StrEnum):
     EXPIRED = "expired"
 
 
+class RefundStatus(StrEnum):
+    PENDING = "pending"
+    PAID = "paid"
+    REJECTED = "rejected"
+
+
 @dataclass(slots=True)
 class User:
     id: int
@@ -105,6 +111,21 @@ class Deposit:
     aba_transaction_id: str | None = None
     aba_payer_name: str | None = None
     matched_at: datetime | None = None
+    created_at: datetime = field(default_factory=utc_now)
+    reviewed_at: datetime | None = None
+    user: User | None = None
+
+
+@dataclass(slots=True)
+class RefundRequest:
+    id: int
+    user_id: int
+    amount_cents: int
+    status: str
+    qr_file_id: str
+    qr_file_type: str = "photo"
+    admin_note: str | None = None
+    reviewed_by: int | None = None
     created_at: datetime = field(default_factory=utc_now)
     reviewed_at: datetime | None = None
     user: User | None = None

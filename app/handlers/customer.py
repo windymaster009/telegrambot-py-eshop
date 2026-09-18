@@ -3,7 +3,7 @@ from __future__ import annotations
 from html import escape
 
 from aiogram import Bot, F, Router
-from aiogram.exceptions import TelegramBadRequest
+from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 from aiogram.filters import Command, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, FSInputFile, Message
@@ -11,6 +11,7 @@ from aiogram.types import CallbackQuery, FSInputFile, Message
 from app.config import Settings
 from app.i18n import TEXTS, tr
 from app.keyboards import (
+    balance_actions,
     deposit_payment_actions,
     language_choices,
     main_menu,
@@ -19,10 +20,12 @@ from app.keyboards import (
     product_list,
     review_deposit,
     review_order,
+    review_refund,
 )
-from app.models import DepositStatus, Language, utc_now
+from app.models import DepositStatus, Language, RefundRequest, utc_now
 from app.money import format_money, parse_money
 from app.services import (
+    ActiveRefundExists,
     AlreadyProcessed,
     InsufficientBalance,
     NotEnoughStock,
@@ -345,7 +348,190 @@ async def show_balance(message: Message, state: FSMContext, service: ShopService
     await state.clear()
     if message.from_user:
         user = await service.get_user(message.from_user.id)
-        await message.answer(tr(user.language, "balance", balance=format_money(user.balance_cents)))
+        pending = await service.pending_refund_for_user(message.from_user.id)
+        text = tr(user.language, "balance", balance=format_money(user.balance_cents))
+        if pending is not None:
+            text += tr(
+                user.language,
+                "refund_pending_balance",
+                refund_id=pending.id,
+                amount=format_money(pending.amount_cents),
+            )
+        await message.answer(
+            text,
+            reply_markup=balance_actions(
+                user.language,
+                user.balance_cents,
+                pending_refund_id=pending.id if pending else None,
+            ),
+        )
+
+
+@router.callback_query(F.data == "refund:start")
+async def begin_refund(callback: CallbackQuery, state: FSMContext, service: ShopService) -> None:
+    await state.clear()
+    user = await service.get_user(callback.from_user.id)
+    pending = await service.pending_refund_for_user(callback.from_user.id)
+    if pending is not None:
+        await callback.answer(
+            tr(user.language, "refund_active_exists", refund_id=pending.id),
+            show_alert=True,
+        )
+        return
+    if user.balance_cents <= 0:
+        await callback.answer(tr(user.language, "refund_no_balance"), show_alert=True)
+        return
+    await state.set_state(CustomerState.entering_refund_amount)
+    if callback.message:
+        await callback.message.answer(
+            tr(
+                user.language,
+                "refund_amount_prompt",
+                balance=format_money(user.balance_cents),
+            )
+        )
+    await callback.answer()
+
+
+@router.message(CustomerState.entering_refund_amount, F.text)
+async def receive_refund_amount(message: Message, state: FSMContext, service: ShopService) -> None:
+    if message.from_user is None:
+        return
+    user = await service.get_user(message.from_user.id)
+    pending = await service.pending_refund_for_user(message.from_user.id)
+    if pending is not None:
+        await state.clear()
+        await message.answer(tr(user.language, "refund_active_exists", refund_id=pending.id))
+        return
+    try:
+        amount_cents = parse_money(message.text or "")
+    except ValueError:
+        await message.answer(tr(user.language, "refund_amount_invalid"))
+        return
+    if amount_cents > user.balance_cents:
+        await message.answer(
+            tr(
+                user.language,
+                "insufficient_balance",
+                needed=format_money(amount_cents),
+                balance=format_money(user.balance_cents),
+            )
+        )
+        return
+    await state.set_state(CustomerState.awaiting_refund_qr)
+    await state.update_data(refund_amount_cents=amount_cents)
+    await message.answer(tr(user.language, "refund_send_qr", amount=format_money(amount_cents)))
+
+
+async def create_refund_from_qr(
+    message: Message,
+    state: FSMContext,
+    service: ShopService,
+    settings: Settings,
+    bot: Bot,
+    *,
+    file_id: str,
+    file_type: str,
+) -> None:
+    if message.from_user is None:
+        return
+    user = await service.get_user(message.from_user.id)
+    data = await state.get_data()
+    amount_cents = data.get("refund_amount_cents")
+    if not isinstance(amount_cents, int) or amount_cents <= 0:
+        await state.clear()
+        await message.answer(tr(user.language, "refund_amount_invalid"))
+        return
+    try:
+        refund = await service.create_refund_request(
+            message.from_user.id,
+            amount_cents,
+            file_id,
+            qr_file_type=file_type,
+        )
+    except ActiveRefundExists as exc:
+        await state.clear()
+        await message.answer(tr(user.language, "refund_active_exists", refund_id=exc.refund_id))
+        return
+    except InsufficientBalance as exc:
+        await state.clear()
+        await message.answer(
+            tr(
+                user.language,
+                "insufficient_balance",
+                needed=format_money(exc.needed_cents),
+                balance=format_money(exc.balance_cents),
+            )
+        )
+        return
+    await state.clear()
+    if refund.user is None:
+        raise RuntimeError("Refund user is not loaded")
+    await message.answer(
+        tr(
+            refund.user.language,
+            "refund_created",
+            refund_id=refund.id,
+            amount=format_money(refund.amount_cents),
+            balance=format_money(refund.user.balance_cents),
+        )
+    )
+    await notify_admins_refund(bot, settings, refund)
+
+
+@router.message(CustomerState.awaiting_refund_qr, F.photo)
+async def receive_refund_qr_photo(
+    message: Message,
+    state: FSMContext,
+    service: ShopService,
+    settings: Settings,
+    bot: Bot,
+) -> None:
+    if not message.photo:
+        return
+    await create_refund_from_qr(
+        message,
+        state,
+        service,
+        settings,
+        bot,
+        file_id=message.photo[-1].file_id,
+        file_type="photo",
+    )
+
+
+@router.message(CustomerState.awaiting_refund_qr, F.document)
+async def receive_refund_qr_document(
+    message: Message,
+    state: FSMContext,
+    service: ShopService,
+    settings: Settings,
+    bot: Bot,
+) -> None:
+    if message.from_user is None or message.document is None:
+        return
+    user = await service.get_user(message.from_user.id)
+    mime_type = message.document.mime_type or ""
+    file_size = message.document.file_size or 0
+    if not mime_type.startswith("image/") or file_size > 10 * 1024 * 1024:
+        await message.answer(tr(user.language, "refund_qr_only"))
+        return
+    await create_refund_from_qr(
+        message,
+        state,
+        service,
+        settings,
+        bot,
+        file_id=message.document.file_id,
+        file_type="document",
+    )
+
+
+@router.message(CustomerState.awaiting_refund_qr)
+async def refund_qr_requires_image(message: Message, service: ShopService) -> None:
+    if message.from_user:
+        user = await service.get_user(message.from_user.id)
+        await message.answer(tr(user.language, "refund_qr_only"))
 
 
 @router.message(F.text.in_(MENU_KEYS["menu_contact"]))
@@ -634,4 +820,35 @@ async def notify_admins_deposit(bot: Bot, settings: Settings, deposit: object) -
                 reply_markup=review_deposit(deposit.id),  # type: ignore[attr-defined]
             )
         except TelegramBadRequest:
+            continue
+
+
+async def notify_admins_refund(bot: Bot, settings: Settings, refund: RefundRequest) -> None:
+    if refund.user is None:
+        raise RuntimeError("Refund user is not loaded")
+    username = f"@{refund.user.username}" if refund.user.username else refund.user.full_name
+    caption = (
+        f"💸 <b>Refund ticket — #{refund.id}</b>\n"
+        f"Customer: {escape(username)} (<code>{refund.user.telegram_id}</code>)\n"
+        f"Refund amount: <b>{format_money(refund.amount_cents)}</b>\n"
+        f"Available balance after hold: <b>{format_money(refund.user.balance_cents)}</b>\n\n"
+        "Scan the customer's QR and transfer the money manually, then mark it paid."
+    )
+    for admin_id in settings.admin_ids:
+        try:
+            if refund.qr_file_type == "document":
+                await bot.send_document(
+                    admin_id,
+                    refund.qr_file_id,
+                    caption=caption,
+                    reply_markup=review_refund(refund.id),
+                )
+            else:
+                await bot.send_photo(
+                    admin_id,
+                    refund.qr_file_id,
+                    caption=caption,
+                    reply_markup=review_refund(refund.id),
+                )
+        except (TelegramAPIError, OSError):
             continue

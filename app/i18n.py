@@ -26,6 +26,50 @@ TEXTS: Mapping[str, Mapping[str, str]] = {
         "choose_quantity": "🔢 Send the quantity you want (1–{max_quantity}).",
         "invalid_quantity": "Please send a whole number between 1 and {max_quantity}.",
         "balance": "💰 Your current balance is: <b>{balance}</b>",
+        "refund_pending_balance": (
+            "\n\n⏳ Refund ticket <b>#{refund_id}</b> for <b>{amount}</b> is waiting for "
+            "admin payment. That amount is already reserved."
+        ),
+        "request_refund": "💸 Request money back",
+        "refund_no_balance": "You do not have an available balance to refund.",
+        "refund_active_exists": (
+            "Refund ticket #{refund_id} is already pending. Please wait for the admin to "
+            "process it."
+        ),
+        "refund_amount_prompt": (
+            "💸 <b>Request money back</b>\n"
+            "Available balance: <b>{balance}</b>\n\n"
+            "Send the amount you want refunded in USD (example: <code>10</code>)."
+        ),
+        "refund_amount_invalid": (
+            "Send a valid refund amount, for example: <code>10</code> or <code>1.50</code>."
+        ),
+        "refund_send_qr": (
+            "📷 Refund amount: <b>{amount}</b>\n\n"
+            "Now send your personal ABA/KHQR as a photo or image file. The admin will scan "
+            "this QR and pay you manually. Your balance is reserved only after the ticket "
+            "is created.\n\n"
+            "Use /cancel if you do not want to continue."
+        ),
+        "refund_qr_only": "Please send your ABA/KHQR as a photo or image file (maximum 10 MB).",
+        "refund_created": (
+            "✅ <b>Refund ticket #{refund_id} created</b>\n"
+            "Amount: <b>{amount}</b>\n"
+            "Available balance: <b>{balance}</b>\n\n"
+            "An admin will scan your QR and pay you manually. You will receive a message "
+            "when it is paid."
+        ),
+        "refund_not_pending": "This refund ticket is no longer pending.",
+        "refund_paid": (
+            "✅ <b>Refund paid</b>\n"
+            "Refund ticket #{refund_id} for <b>{amount}</b> was marked as paid by the admin. "
+            "Please check the account linked to your QR."
+        ),
+        "refund_rejected": (
+            "❌ Refund ticket #{refund_id} was rejected. <b>{amount}</b> was restored to "
+            "your wallet.\n"
+            "Available balance: <b>{balance}</b>"
+        ),
         "insufficient_balance": (
             "❌ Insufficient balance. You need {needed}, but your balance is {balance}."
         ),
@@ -156,6 +200,46 @@ TEXTS: Mapping[str, Mapping[str, str]] = {
         "choose_quantity": "🔢 សូមផ្ញើចំនួនដែលអ្នកចង់ទិញ (1–{max_quantity})។",
         "invalid_quantity": "សូមផ្ញើលេខគត់ចន្លោះពី 1 ដល់ {max_quantity}។",
         "balance": "💰 សមតុល្យបច្ចុប្បន្នរបស់អ្នកគឺ៖ <b>{balance}</b>",
+        "refund_pending_balance": (
+            "\n\n⏳ សំណើសងប្រាក់ <b>#{refund_id}</b> ចំនួន <b>{amount}</b> "
+            "កំពុងរង់ចាំអ្នកគ្រប់គ្រងទូទាត់។ ចំនួននេះត្រូវបានរក្សាទុករួចហើយ។"
+        ),
+        "request_refund": "💸 ស្នើសុំប្រាក់ត្រឡប់វិញ",
+        "refund_no_balance": "អ្នកមិនមានសមតុល្យដែលអាចស្នើសុំត្រឡប់វិញបានទេ។",
+        "refund_active_exists": ("សំណើសងប្រាក់ #{refund_id} កំពុងរង់ចាំរួចហើយ។ សូមរង់ចាំអ្នកគ្រប់គ្រងដំណើរការ។"),
+        "refund_amount_prompt": (
+            "💸 <b>ស្នើសុំប្រាក់ត្រឡប់វិញ</b>\n"
+            "សមតុល្យដែលអាចប្រើបាន៖ <b>{balance}</b>\n\n"
+            "សូមផ្ញើចំនួនទឹកប្រាក់ USD ដែលអ្នកចង់បានវិញ (ឧទាហរណ៍៖ <code>10</code>)។"
+        ),
+        "refund_amount_invalid": (
+            "សូមផ្ញើចំនួនទឹកប្រាក់ត្រឹមត្រូវ ឧទាហរណ៍៖ <code>10</code> ឬ <code>1.50</code>។"
+        ),
+        "refund_send_qr": (
+            "📷 ចំនួនសងប្រាក់៖ <b>{amount}</b>\n\n"
+            "ឥឡូវនេះ សូមផ្ញើ ABA/KHQR ផ្ទាល់ខ្លួនរបស់អ្នកជារូបថត ឬឯកសាររូបភាព។ "
+            "អ្នកគ្រប់គ្រងនឹងស្កេន QR នេះ ហើយផ្ទេរប្រាក់ឱ្យអ្នកដោយផ្ទាល់។ "
+            "សមតុល្យនឹងត្រូវរក្សាទុកនៅពេលសំណើត្រូវបានបង្កើត។\n\n"
+            "ប្រើ /cancel ប្រសិនបើអ្នកមិនចង់បន្ត។"
+        ),
+        "refund_qr_only": "សូមផ្ញើ ABA/KHQR ជារូបថត ឬឯកសាររូបភាព (អតិបរមា 10 MB)។",
+        "refund_created": (
+            "✅ <b>បានបង្កើតសំណើសងប្រាក់ #{refund_id}</b>\n"
+            "ចំនួន៖ <b>{amount}</b>\n"
+            "សមតុល្យដែលអាចប្រើបាន៖ <b>{balance}</b>\n\n"
+            "អ្នកគ្រប់គ្រងនឹងស្កេន QR របស់អ្នក ហើយទូទាត់ដោយផ្ទាល់។ "
+            "អ្នកនឹងទទួលសារនៅពេលទូទាត់រួច។"
+        ),
+        "refund_not_pending": "សំណើសងប្រាក់នេះលែងកំពុងរង់ចាំទៀតហើយ។",
+        "refund_paid": (
+            "✅ <b>បានទូទាត់ប្រាក់ត្រឡប់វិញ</b>\n"
+            "សំណើ #{refund_id} ចំនួន <b>{amount}</b> ត្រូវបានអ្នកគ្រប់គ្រងសម្គាល់ថាបានទូទាត់។ "
+            "សូមពិនិត្យគណនីដែលភ្ជាប់នឹង QR របស់អ្នក។"
+        ),
+        "refund_rejected": (
+            "❌ សំណើសងប្រាក់ #{refund_id} ត្រូវបានបដិសេធ។ បានបញ្ចូល <b>{amount}</b> ទៅកាបូបវិញ។\n"
+            "សមតុល្យដែលអាចប្រើបាន៖ <b>{balance}</b>"
+        ),
         "insufficient_balance": "❌ សមតុល្យមិនគ្រប់។ ត្រូវការ {needed} ប៉ុន្តែអ្នកមាន {balance}។",
         "purchase_complete": (
             "✅ <b>ការទូទាត់បានជោគជ័យ!</b>\n"
@@ -207,8 +291,7 @@ TEXTS: Mapping[str, Mapping[str, str]] = {
         ),
         "deposit_received": "✅ បានទទួលបង្កាន់ដៃបញ្ចូលប្រាក់។ អ្នកគ្រប់គ្រងនឹងពិនិត្យឆាប់ៗ។",
         "deposit_approved": (
-            "✅ <b>ការទូទាត់បានជោគជ័យ!</b> ការបញ្ចូលប្រាក់ #{deposit_id} ត្រូវបានបញ្ជាក់។\n"
-            "សមតុល្យថ្មី៖ {balance}។"
+            "✅ <b>ការទូទាត់បានជោគជ័យ!</b> ការបញ្ចូលប្រាក់ #{deposit_id} ត្រូវបានបញ្ជាក់។\nសមតុល្យថ្មី៖ {balance}។"
         ),
         "deposit_rejected": "❌ ការបញ្ចូលប្រាក់ #{deposit_id} ត្រូវបានបដិសេធ។ សូមទាក់ទងអ្នកគ្រប់គ្រង។",
         "submit_payment_proof": "📸 ផ្ញើបង្កាន់ដៃទូទាត់",

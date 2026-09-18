@@ -18,6 +18,8 @@ from app.models import (
     OrderStatus,
     PaymentMethod,
     Product,
+    RefundRequest,
+    RefundStatus,
     StockItem,
     User,
     utc_now,
@@ -44,6 +46,12 @@ class InsufficientBalance(ShopError):
 
 class AlreadyProcessed(ShopError):
     pass
+
+
+class ActiveRefundExists(ShopError):
+    def __init__(self, refund_id: int) -> None:
+        self.refund_id = refund_id
+        super().__init__("A refund request is already pending")
 
 
 @dataclass(frozen=True)
@@ -86,6 +94,7 @@ class ShopService:
         self.stock_items = database["stock_items"]
         self.orders = database["orders"]
         self.deposits = database["deposits"]
+        self.refunds = database["refunds"]
         self.payment_slots = database["payment_slots"]
         self.payment_events = database["payment_events"]
         self.counters = database["counters"]
@@ -683,6 +692,197 @@ class ShopService:
         await self._quarantine_topup_slot(document)
         return await self._load_deposit(deposit_id)
 
+    async def create_refund_request(
+        self,
+        telegram_id: int,
+        amount_cents: int,
+        qr_file_id: str,
+        *,
+        qr_file_type: str = "photo",
+    ) -> RefundRequest:
+        if amount_cents <= 0:
+            raise ShopError("Refund amount must be positive")
+        if amount_cents > 99_999_900:
+            raise ShopError("Refund amount is too large")
+        if not qr_file_id.strip():
+            raise ShopError("A receiving QR image is required")
+        if qr_file_type not in {"photo", "document"}:
+            raise ShopError("Unsupported QR file type")
+
+        async def operation(session: Any) -> RefundRequest:
+            existing = await self.refunds.find_one(
+                {"user_id": telegram_id, "status": RefundStatus.PENDING.value},
+                session=session,
+            )
+            if existing is not None:
+                raise ActiveRefundExists(int(existing["_id"]))
+
+            user_document = await self.users.find_one({"_id": telegram_id}, session=session)
+            if user_document is None:
+                raise ShopError("User not found. Send /start first.")
+            balance_cents = int(user_document.get("balance_cents", 0))
+            if balance_cents < amount_cents:
+                raise InsufficientBalance(balance_cents, amount_cents)
+
+            refund_id = (await self._next_ids("refunds", session=session))[0]
+            now = utc_now()
+            await self.refunds.insert_one(
+                {
+                    "_id": refund_id,
+                    "user_id": telegram_id,
+                    "amount_cents": amount_cents,
+                    "status": RefundStatus.PENDING.value,
+                    "qr_file_id": qr_file_id.strip(),
+                    "qr_file_type": qr_file_type,
+                    "admin_note": None,
+                    "reviewed_by": None,
+                    "created_at": now,
+                    "reviewed_at": None,
+                },
+                session=session,
+            )
+
+            updated_user = await self.users.find_one_and_update(
+                {"_id": telegram_id, "balance_cents": {"$gte": amount_cents}},
+                {
+                    "$inc": {"balance_cents": -amount_cents},
+                    "$set": {"updated_at": now},
+                },
+                return_document=ReturnDocument.AFTER,
+                session=session,
+            )
+            if updated_user is None:
+                await self.refunds.delete_one({"_id": refund_id}, session=session)
+                current = await self.users.find_one({"_id": telegram_id}, session=session)
+                current_balance = int(current.get("balance_cents", 0)) if current else 0
+                raise InsufficientBalance(current_balance, amount_cents)
+            return await self._load_refund(refund_id, session=session)
+
+        try:
+            return await self._in_transaction(operation)
+        except DuplicateKeyError as exc:
+            active = await self.refunds.find_one(
+                {"user_id": telegram_id, "status": RefundStatus.PENDING.value}
+            )
+            raise ActiveRefundExists(int(active["_id"]) if active else 0) from exc
+
+    async def get_user_refund(self, telegram_id: int, refund_id: int) -> RefundRequest | None:
+        document = await self.refunds.find_one({"_id": refund_id, "user_id": telegram_id})
+        if document is None:
+            return None
+        return await self._load_refund(refund_id)
+
+    async def pending_refund_for_user(self, telegram_id: int) -> RefundRequest | None:
+        document = await self.refunds.find_one(
+            {"user_id": telegram_id, "status": RefundStatus.PENDING.value},
+            sort=[("created_at", DESCENDING)],
+        )
+        if document is None:
+            return None
+        return await self._load_refund(int(document["_id"]))
+
+    async def list_user_refunds(self, telegram_id: int, limit: int = 10) -> list[RefundRequest]:
+        documents = await (
+            self.refunds.find({"user_id": telegram_id})
+            .sort("created_at", DESCENDING)
+            .limit(limit)
+            .to_list(length=limit)
+        )
+        return [await self._load_refund(int(document["_id"])) for document in documents]
+
+    async def pending_refunds(self, limit: int = 20) -> list[RefundRequest]:
+        return await self.admin_refunds(status=RefundStatus.PENDING.value, limit=limit)
+
+    async def admin_refunds(
+        self, status: str | None = None, limit: int = 100
+    ) -> list[RefundRequest]:
+        query: Document = {} if status is None else {"status": status}
+        documents = await (
+            self.refunds.find(query)
+            .sort("created_at", DESCENDING)
+            .limit(limit)
+            .to_list(length=limit)
+        )
+        return [await self._load_refund(int(document["_id"])) for document in documents]
+
+    async def mark_refund_paid(
+        self, refund_id: int, *, reviewed_by: int | None = None
+    ) -> RefundRequest:
+        document = await self.refunds.find_one_and_update(
+            {"_id": refund_id, "status": RefundStatus.PENDING.value},
+            {
+                "$set": {
+                    "status": RefundStatus.PAID.value,
+                    "reviewed_by": reviewed_by,
+                    "reviewed_at": utc_now(),
+                }
+            },
+            return_document=ReturnDocument.AFTER,
+        )
+        if document is None:
+            raise AlreadyProcessed
+        return await self._load_refund(refund_id)
+
+    async def reject_refund(
+        self,
+        refund_id: int,
+        note: str | None = None,
+        *,
+        reviewed_by: int | None = None,
+    ) -> RefundRequest:
+        return await self._restore_refund_balance(
+            refund_id,
+            RefundStatus.REJECTED,
+            note=note,
+            reviewed_by=reviewed_by,
+        )
+
+    async def _restore_refund_balance(
+        self,
+        refund_id: int,
+        status: RefundStatus,
+        *,
+        note: str | None = None,
+        reviewed_by: int | None = None,
+    ) -> RefundRequest:
+        async def operation(session: Any) -> RefundRequest | None:
+            query: Document = {
+                "_id": refund_id,
+                "status": RefundStatus.PENDING.value,
+            }
+            now = utc_now()
+            document = await self.refunds.find_one_and_update(
+                query,
+                {
+                    "$set": {
+                        "status": status.value,
+                        "admin_note": self._optional_text(note),
+                        "reviewed_by": reviewed_by,
+                        "reviewed_at": now,
+                    }
+                },
+                return_document=ReturnDocument.AFTER,
+                session=session,
+            )
+            if document is None:
+                return None
+            user_update = await self.users.update_one(
+                {"_id": int(document["user_id"])},
+                {
+                    "$inc": {"balance_cents": int(document["amount_cents"])},
+                    "$set": {"updated_at": now},
+                },
+                session=session,
+            )
+            if user_update.modified_count != 1:
+                raise ShopError("Refund user not found")
+            return await self._load_refund(refund_id, session=session)
+
+        refund = await self._in_transaction(operation)
+        if refund is None:
+            raise AlreadyProcessed
+        return refund
+
     async def process_aba_topup(self, payment: AbaPayment) -> TopupMatchResult:
         await self.expire_deposits()
 
@@ -1139,6 +1339,20 @@ class ShopService:
             raise ShopError("Deposit user not found")
         return self._deposit_from_document(document, user=self._user_from_document(user_document))
 
+    async def _load_refund(self, refund_id: int, *, session: Any = None) -> RefundRequest:
+        document = await self.refunds.find_one({"_id": refund_id}, session=session)
+        if document is None:
+            raise ShopError("Refund request not found")
+        user_document = await self.users.find_one(
+            {"_id": int(document["user_id"])}, session=session
+        )
+        if user_document is None:
+            raise ShopError("Refund user not found")
+        return self._refund_from_document(
+            document,
+            user=self._user_from_document(user_document),
+        )
+
     async def _in_transaction(self, operation: Callable[[Any], Awaitable[T]]) -> T:
         if not self.use_transactions:
             return await operation(None)
@@ -1231,6 +1445,24 @@ class ShopService:
             aba_transaction_id=document.get("aba_transaction_id"),
             aba_payer_name=document.get("aba_payer_name"),
             matched_at=ShopService._datetime(document.get("matched_at")),
+            created_at=ShopService._datetime(document.get("created_at")) or utc_now(),
+            reviewed_at=ShopService._datetime(document.get("reviewed_at")),
+            user=user,
+        )
+
+    @staticmethod
+    def _refund_from_document(document: Document, *, user: User) -> RefundRequest:
+        return RefundRequest(
+            id=int(document["_id"]),
+            user_id=int(document["user_id"]),
+            amount_cents=int(document["amount_cents"]),
+            status=str(document["status"]),
+            qr_file_id=str(document["qr_file_id"]),
+            qr_file_type=str(document.get("qr_file_type", "photo")),
+            admin_note=document.get("admin_note"),
+            reviewed_by=(
+                int(document["reviewed_by"]) if document.get("reviewed_by") is not None else None
+            ),
             created_at=ShopService._datetime(document.get("created_at")) or utc_now(),
             reviewed_at=ShopService._datetime(document.get("reviewed_at")),
             user=user,

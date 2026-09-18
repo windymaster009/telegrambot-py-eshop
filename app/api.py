@@ -22,6 +22,8 @@ from app.api_schemas import (
     OrderResponse,
     ProductResponse,
     ProductWrite,
+    RefundActionResponse,
+    RefundResponse,
     RejectWrite,
     StockAddedResponse,
     StockWrite,
@@ -29,12 +31,22 @@ from app.api_schemas import (
 )
 from app.config import Settings, get_settings
 from app.database import Database
-from app.models import Deposit, DepositStatus, Order, OrderStatus, User
+from app.models import (
+    Deposit,
+    DepositStatus,
+    Order,
+    OrderStatus,
+    RefundRequest,
+    RefundStatus,
+    User,
+)
 from app.notifications import (
     send_deposit_approved,
     send_deposit_rejected,
     send_order_approved,
     send_order_rejected,
+    send_refund_paid,
+    send_refund_rejected,
 )
 from app.services import (
     AlreadyProcessed,
@@ -234,6 +246,40 @@ def create_app(
         sent = await try_notification(send_deposit_rejected, bot, deposit)
         return DepositActionResponse(deposit=deposit_response(deposit), notification_sent=sent)
 
+    @admin.get("/refunds", response_model=list[RefundResponse])
+    async def list_refunds(
+        service: ServiceDependency,
+        status: RefundStatus | None = None,
+        limit: Annotated[int, Query(ge=1, le=500)] = 100,
+    ) -> list[RefundResponse]:
+        refunds = await service.admin_refunds(status.value if status else None, limit)
+        return [refund_response(refund) for refund in refunds]
+
+    @admin.post("/refunds/{refund_id}/paid", response_model=RefundActionResponse)
+    async def mark_refund_paid(
+        refund_id: int, service: ServiceDependency, bot: BotDependency
+    ) -> RefundActionResponse:
+        refund = await service.mark_refund_paid(refund_id)
+        sent = await try_notification(send_refund_paid, bot, refund)
+        return RefundActionResponse(
+            refund=refund_response(refund),
+            notification_sent=sent,
+        )
+
+    @admin.post("/refunds/{refund_id}/reject", response_model=RefundActionResponse)
+    async def reject_refund(
+        refund_id: int,
+        payload: RejectWrite,
+        service: ServiceDependency,
+        bot: BotDependency,
+    ) -> RefundActionResponse:
+        refund = await service.reject_refund(refund_id, payload.note)
+        sent = await try_notification(send_refund_rejected, bot, refund)
+        return RefundActionResponse(
+            refund=refund_response(refund),
+            notification_sent=sent,
+        )
+
     @admin.get("/users", response_model=list[UserResponse])
     async def list_users(
         service: ServiceDependency,
@@ -349,10 +395,27 @@ def deposit_response(deposit: Deposit) -> DepositResponse:
     )
 
 
+def refund_response(refund: RefundRequest) -> RefundResponse:
+    if refund.user is None:
+        raise RuntimeError("Refund user is not loaded")
+    return RefundResponse(
+        id=refund.id,
+        user=user_response(refund.user),
+        amount_cents=refund.amount_cents,
+        status=refund.status,
+        qr_file_id=refund.qr_file_id,
+        qr_file_type=refund.qr_file_type,
+        admin_note=refund.admin_note,
+        reviewed_by=refund.reviewed_by,
+        created_at=refund.created_at,
+        reviewed_at=refund.reviewed_at,
+    )
+
+
 async def try_notification(
     sender: Any,
     bot: Bot,
-    value: Order | Deposit,
+    value: Order | Deposit | RefundRequest,
 ) -> bool:
     try:
         await sender(bot, value)

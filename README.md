@@ -24,6 +24,7 @@ balances stay consistent.
 - Cambodia QR payment proof with admin approval/rejection
 - Wallet deposits and balance purchases
 - Automatic ABA top-up matching with exact unique amounts and duplicate protection
+- Manual wallet-refund tickets with customer ABA/KHQR upload and admin review
 - Automatic delivery of account/key/code stock
 - English and Khmer customer interface
 - Telegram admin panel
@@ -163,6 +164,9 @@ Protected with `X-API-Key`:
 - `GET /api/v1/admin/deposits`
 - `POST /api/v1/admin/deposits/{id}/approve`
 - `POST /api/v1/admin/deposits/{id}/reject`
+- `GET /api/v1/admin/refunds`
+- `POST /api/v1/admin/refunds/{id}/paid`
+- `POST /api/v1/admin/refunds/{id}/reject`
 - `GET /api/v1/admin/users`
 - `GET /api/v1/admin/telegram-files/{file_id}`
 
@@ -241,6 +245,23 @@ credit a wallet twice. Because the sender is not checked, keep this group privat
 and trusted administrators; any member who can post could otherwise submit forged ABA-looking text.
 Keep the manual **Submit payment proof** button as the fallback if a notification is delayed or its
 format changes.
+
+## Wallet refund tickets
+
+Customers can open **Balance** and choose **Request money back**. The bot asks for an amount and the
+customer's ABA/KHQR as a photo or image file. The ticket is created only after the QR is received;
+at that point the requested amount is reserved by deducting it from the available wallet balance.
+Each customer can have only one pending refund ticket.
+
+The administrator opens `/admin` -> **Refund tickets**, scans the customer's QR, and sends the money
+manually. After the bank transfer succeeds, **Mark paid** closes the ticket without deducting the
+wallet again. **Reject & restore** closes the ticket and atomically returns the reserved amount to
+the customer's wallet. Both actions notify the customer in their selected language.
+
+A customer may use `/cancel` while entering the amount or before uploading the QR. After the ticket
+is submitted, only an administrator can close it. This prevents a race where the customer cancels
+and regains their wallet funds while an administrator is simultaneously sending the real bank
+transfer.
 
 ## Telegram admin workflow
 
