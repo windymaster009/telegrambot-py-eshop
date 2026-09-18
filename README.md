@@ -195,7 +195,7 @@ it.
    ABA notification group. Do not reuse a personal account containing sensitive chats.
 3. Create an API ID and API hash for that reader account at
    [my.telegram.org](https://my.telegram.org), install the updated dependencies, and generate its
-   encrypted session string:
+   private session string:
 
    ```bash
    cd /home/kevin/telegrambot-py-eshop

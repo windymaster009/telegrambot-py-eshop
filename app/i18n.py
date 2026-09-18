@@ -102,8 +102,9 @@ TEXTS: Mapping[str, Mapping[str, str]] = {
         "topup_expired": "⌛ This top-up expired. Please create a new one.",
         "topup_failed": (
             "❌ <b>Payment failed / timed out</b>\n"
-            "No matching ABA payment was received for top-up #{deposit_id} within 15 minutes. "
-            "Your balance was not changed. If you already paid, contact support."
+            "No matching ABA payment was received for top-up #{deposit_id} within "
+            "{minutes} minutes. Your balance was not changed. If you already paid, "
+            "contact support."
         ),
         "topup_not_pending": "This top-up is no longer pending.",
         "topup_already_approved": "✅ This top-up has already been confirmed.",
@@ -218,7 +219,7 @@ TEXTS: Mapping[str, Mapping[str, str]] = {
         "topup_failed": (
             "❌ <b>ការទូទាត់បរាជ័យ ឬផុតកំណត់</b>\n"
             "មិនបានទទួលការទូទាត់ ABA ដែលត្រូវគ្នាសម្រាប់ការបញ្ចូលប្រាក់ #{deposit_id} "
-            "ក្នុងរយៈពេល 15 នាទី។ សមតុល្យរបស់អ្នកមិនត្រូវបានផ្លាស់ប្តូរទេ។ "
+            "ក្នុងរយៈពេល {minutes} នាទី។ សមតុល្យរបស់អ្នកមិនត្រូវបានផ្លាស់ប្តូរទេ។ "
             "បើអ្នកបានបង់រួច សូមទាក់ទងអ្នកគ្រប់គ្រង។"
         ),
         "topup_not_pending": "ការបញ្ចូលប្រាក់នេះលែងរង់ចាំទៀតហើយ។",

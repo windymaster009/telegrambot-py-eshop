@@ -111,13 +111,15 @@ async def test_listener_status_reports_group_permissions_and_text_scan_mode() ->
 
     status = await _listener_status(check_bot, listener_settings())
 
-    assert "Group-message access: <b>ready</b>" in status
-    assert "Reader mode: <b>ABA text scan</b>" in status
+    assert "Bot group access: <b>ready</b>" in status
+    assert "PayWay bot-message reader: <b>missing</b>" in status
+    assert "Reader mode: <b>Bot API fallback only</b>" in status
 
 
 async def test_expired_queue_sends_failure_callback_once() -> None:
     deposit = SimpleNamespace(id=12)
     service = SimpleNamespace(
+        topup_expiry_minutes=15,
         expire_deposits=AsyncMock(return_value=1),
         expired_deposits_awaiting_notification=AsyncMock(return_value=[deposit]),
         mark_expiry_notification_processed=AsyncMock(),
@@ -130,7 +132,7 @@ async def test_expired_queue_sends_failure_callback_once() -> None:
         processed = await _notify_expired_topups_once(service, shop_bot)
 
     assert processed == 1
-    notify_customer.assert_awaited_once_with(shop_bot, deposit)
+    notify_customer.assert_awaited_once_with(shop_bot, deposit, minutes=15)
     service.mark_expiry_notification_processed.assert_awaited_once_with(
         12, delivered=True
     )

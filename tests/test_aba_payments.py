@@ -35,8 +35,6 @@ def test_parses_five_cent_payment_from_production_screenshot() -> None:
     assert payment.paid_at_text == "Sep 17, 11:45 PM"
     assert payment.apv == "305256"
 
-
-
 def test_parses_current_aba_khqr_acleda_notification() -> None:
     payment = parse_aba_payment(
         "$0.06 paid by Nhim Kevin (*115) on Sep 18, 02:01 AM via "

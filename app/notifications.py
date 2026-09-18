@@ -57,10 +57,15 @@ async def send_deposit_rejected(bot: Bot, deposit: Deposit) -> None:
     )
 
 
-async def send_deposit_expired(bot: Bot, deposit: Deposit) -> None:
+async def send_deposit_expired(bot: Bot, deposit: Deposit, *, minutes: int) -> None:
     if deposit.user is None:
         raise RuntimeError("Deposit user is not loaded")
     await bot.send_message(
         deposit.user.telegram_id,
-        tr(deposit.user.language, "topup_failed", deposit_id=deposit.id),
+        tr(
+            deposit.user.language,
+            "topup_failed",
+            deposit_id=deposit.id,
+            minutes=minutes,
+        ),
     )

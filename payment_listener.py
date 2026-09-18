@@ -183,7 +183,11 @@ async def _notify_expired_topups_once(service: ShopService, shop_bot: Bot) -> in
     for deposit in deposits:
         delivered = True
         try:
-            await send_deposit_expired(shop_bot, deposit)
+            await send_deposit_expired(
+                shop_bot,
+                deposit,
+                minutes=service.topup_expiry_minutes,
+            )
         except (TelegramAPIError, OSError):
             delivered = False
             logger.exception("Could not notify the customer that top-up %s expired", deposit.id)
@@ -358,12 +362,15 @@ async def main() -> None:
             )
 
         done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+        error: BaseException | None = None
         for task in done:
-            if not task.cancelled() and task.exception() is not None:
-                raise task.exception()  # type: ignore[misc]
+            if not task.cancelled() and task.exception() is not None and error is None:
+                error = task.exception()
         for task in pending:
             task.cancel()
         await asyncio.gather(*pending, return_exceptions=True)
+        if error is not None:
+            raise error
     finally:
         await shop_bot.session.close()
         await check_bot.session.close()

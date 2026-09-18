@@ -82,7 +82,6 @@ class Settings(BaseSettings):
     def resolve_payment_qr_path(cls, value: Path) -> Path:
         return value if value.is_absolute() else PROJECT_ROOT / value
 
-
     @property
     def payment_reader_configured(self) -> bool:
         return (
