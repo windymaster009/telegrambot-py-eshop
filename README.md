@@ -78,6 +78,7 @@ PAYMENT_ACCOUNT_NAME=YOUR ABA ACCOUNT NAME
 PAYMENT_ACCOUNT_NUMBER=YOUR ACCOUNT NUMBER
 PAYMENT_EXPIRY_MINUTES=30
 TOPUP_EXPIRY_MINUTES=15
+ADMIN_TEST_MODE_ENABLED=false
 
 AUTO_TOPUP_ENABLED=false
 PAYMENT_CHECK_BOT_TOKEN=
@@ -262,6 +263,21 @@ A customer may use `/cancel` while entering the amount or before uploading the Q
 is submitted, only an administrator can close it. This prevents a race where the customer cancels
 and regains their wallet funds while an administrator is simultaneously sending the real bank
 transfer.
+
+## Admin-only payment testing
+
+For controlled testing without a real bank transfer, temporarily set
+`ADMIN_TEST_MODE_ENABLED=true` and restart `telegram-shop-bot`. A Telegram account listed in
+`ADMIN_IDS` can then type `[For testing]` (brackets and letter case are optional) at an active
+payment step:
+
+- A wallet deposit is approved and test balance is credited.
+- A QR product order is completed and delivered; this consumes real product stock.
+- A refund waiting for the customer's QR is simulated as paid; no ABA transfer is sent and the
+  amount is deducted from the admin test account's wallet.
+
+Every simulated record has a `[TEST]` admin note. Non-admin accounts are rejected even if they know
+the phrase. Set `ADMIN_TEST_MODE_ENABLED=false` and restart the bot when testing is finished.
 
 ## Telegram admin workflow
 

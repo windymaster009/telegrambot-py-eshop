@@ -15,20 +15,38 @@ from app.keyboards import admin_home, admin_product_actions, admin_products, rev
 from app.money import format_money, parse_money
 from app.notifications import send_refund_paid, send_refund_rejected
 from app.services import (
+    ActiveRefundExists,
     AlreadyProcessed,
+    InsufficientBalance,
     NotEnoughStock,
     ShopError,
     ShopService,
     delivery_text,
     product_name,
 )
-from app.states import AdminState
+from app.states import AdminState, CustomerState
 
 router = Router(name="admin")
 
 
 def is_admin(user_id: int, settings: Settings) -> bool:
     return user_id in settings.admin_ids
+
+
+def admin_panel_text(settings: Settings) -> str:
+    text = "🛠 <b>Shop admin</b>"
+    if settings.admin_test_mode_enabled:
+        text += "\n\n🧪 <b>WARNING: ADMIN TEST MODE IS ENABLED</b>"
+    return text
+
+
+def is_test_keyword(text: str | None) -> bool:
+    normalized = " ".join((text or "").strip().strip("[]").split()).casefold()
+    return normalized == "for testing"
+
+
+async def test_keyword_filter(message: Message) -> bool:
+    return is_test_keyword(message.text)
 
 
 async def deny(callback: CallbackQuery, settings: Settings) -> bool:
@@ -43,7 +61,164 @@ async def admin_panel(message: Message, state: FSMContext, settings: Settings) -
     if message.from_user is None or not is_admin(message.from_user.id, settings):
         return
     await state.clear()
-    await message.answer("🛠 <b>Shop admin</b>", reply_markup=admin_home())
+    await message.answer(admin_panel_text(settings), reply_markup=admin_home())
+
+
+@router.message(test_keyword_filter)
+async def simulate_success_for_admin(
+    message: Message,
+    state: FSMContext,
+    service: ShopService,
+    settings: Settings,
+) -> None:
+    if message.from_user is None:
+        return
+    admin_id = message.from_user.id
+    if not is_admin(admin_id, settings):
+        await message.answer("⛔ Not authorized.")
+        return
+
+    try:
+        user = await service.get_user(admin_id)
+    except ShopError:
+        await message.answer("Send /start before using admin test mode.")
+        return
+    if not settings.admin_test_mode_enabled:
+        await message.answer(tr(user.language, "test_mode_disabled"))
+        return
+
+    current_state = await state.get_state()
+    data = await state.get_data()
+    try:
+        if current_state == CustomerState.awaiting_order_proof.state:
+            order_id = data.get("order_id")
+            if not isinstance(order_id, int):
+                await state.clear()
+                await message.answer(tr(user.language, "test_mode_no_request"))
+                return
+            order = await service.complete_order_for_test(
+                admin_id,
+                order_id,
+                reviewed_by=admin_id,
+            )
+            await state.clear()
+            await message.answer(
+                tr(user.language, "test_order_success", order_id=order.id)
+                + "\n\n"
+                + tr(
+                    user.language,
+                    "purchase_complete",
+                    order_id=order.id,
+                    name=escape(product_name(order.product, user.language)),
+                    quantity=order.quantity,
+                    delivery=escape(delivery_text(order)),
+                )
+            )
+            return
+
+        if current_state == CustomerState.awaiting_deposit_proof.state:
+            deposit_id = data.get("deposit_id")
+            if not isinstance(deposit_id, int):
+                await state.clear()
+                await message.answer(tr(user.language, "test_mode_no_request"))
+                return
+            deposit = await service.approve_deposit_for_test(
+                admin_id,
+                deposit_id,
+                reviewed_by=admin_id,
+            )
+            await state.clear()
+            await message.answer(
+                tr(
+                    user.language,
+                    "test_deposit_success",
+                    deposit_id=deposit.id,
+                    amount=format_money(deposit.amount_cents),
+                )
+                + "\n\n"
+                + tr(
+                    user.language,
+                    "deposit_approved",
+                    deposit_id=deposit.id,
+                    balance=format_money(deposit.user.balance_cents),  # type: ignore[union-attr]
+                )
+            )
+            return
+
+        if current_state == CustomerState.awaiting_refund_qr.state:
+            amount_cents = data.get("refund_amount_cents")
+            test_key = data.get("refund_test_key")
+            if (
+                not isinstance(amount_cents, int)
+                or amount_cents <= 0
+                or not isinstance(test_key, str)
+                or not test_key
+            ):
+                await state.clear()
+                await message.answer(tr(user.language, "test_mode_no_request"))
+                return
+            refund = await service.complete_refund_for_test(
+                admin_id,
+                amount_cents,
+                reviewed_by=admin_id,
+                test_key=test_key,
+            )
+            await state.clear()
+            await message.answer(
+                tr(
+                    user.language,
+                    "test_refund_success",
+                    refund_id=refund.id,
+                    amount=format_money(refund.amount_cents),
+                    balance=format_money(refund.user.balance_cents),  # type: ignore[union-attr]
+                )
+            )
+            return
+
+        deposit = await service.pending_deposit_for_user(admin_id)
+        if deposit is not None:
+            deposit = await service.approve_deposit_for_test(
+                admin_id,
+                deposit.id,
+                reviewed_by=admin_id,
+            )
+            await message.answer(
+                tr(
+                    user.language,
+                    "test_deposit_success",
+                    deposit_id=deposit.id,
+                    amount=format_money(deposit.amount_cents),
+                )
+                + "\n\n"
+                + tr(
+                    user.language,
+                    "deposit_approved",
+                    deposit_id=deposit.id,
+                    balance=format_money(deposit.user.balance_cents),  # type: ignore[union-attr]
+                )
+            )
+            return
+
+        await message.answer(tr(user.language, "test_mode_no_request"))
+    except ActiveRefundExists as exc:
+        await state.clear()
+        await message.answer(tr(user.language, "test_mode_refund_pending", refund_id=exc.refund_id))
+    except InsufficientBalance as exc:
+        await state.clear()
+        await message.answer(
+            tr(
+                user.language,
+                "insufficient_balance",
+                needed=format_money(exc.needed_cents),
+                balance=format_money(exc.balance_cents),
+            )
+        )
+    except (AlreadyProcessed, NotEnoughStock):
+        await state.clear()
+        await message.answer(tr(user.language, "test_mode_expired"))
+    except ShopError as exc:
+        await state.clear()
+        await message.answer(f"🧪 Test failed: {escape(str(exc))}")
 
 
 @router.callback_query(F.data == "admin:home")
@@ -54,7 +229,7 @@ async def admin_home_callback(
         return
     await state.clear()
     if callback.message:
-        await callback.message.edit_text("🛠 <b>Shop admin</b>", reply_markup=admin_home())
+        await callback.message.edit_text(admin_panel_text(settings), reply_markup=admin_home())
     await callback.answer()
 
 

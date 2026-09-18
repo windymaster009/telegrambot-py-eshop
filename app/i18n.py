@@ -160,6 +160,30 @@ TEXTS: Mapping[str, Mapping[str, str]] = {
         "language_changed": "✅ Language changed to English.",
         "cancelled": "Cancelled.",
         "already_processed": "This request has already been processed.",
+        "test_mode_disabled": (
+            "🧪 Admin test mode is disabled. Set "
+            "<code>ADMIN_TEST_MODE_ENABLED=true</code> and restart the shop bot."
+        ),
+        "test_mode_no_request": (
+            "🧪 No active payment, deposit, or refund step was found for testing."
+        ),
+        "test_mode_expired": "🧪 This test request is no longer active or has expired.",
+        "test_mode_refund_pending": (
+            "🧪 Refund ticket #{refund_id} is already pending. Process or reject it first."
+        ),
+        "test_order_success": (
+            "🧪 <b>TEST MODE</b> — no bank payment was made. "
+            "Order #{order_id} was completed and real stock was consumed."
+        ),
+        "test_deposit_success": (
+            "🧪 <b>TEST MODE</b> — no ABA payment was made. "
+            "Top-up #{deposit_id} was approved and {amount} test balance was credited."
+        ),
+        "test_refund_success": (
+            "🧪 <b>TEST MODE</b> — no ABA transfer was sent. "
+            "Refund #{refund_id} for {amount} was simulated as paid.\n"
+            "Available balance: <b>{balance}</b>"
+        ),
         "menu_shop": "🛍 Shop",
         "menu_balance": "💰 Balance",
         "menu_deposit": "➕ Deposit",
@@ -313,6 +337,26 @@ TEXTS: Mapping[str, Mapping[str, str]] = {
         "language_changed": "✅ បានប្ដូរភាសាទៅជាភាសាខ្មែរ។",
         "cancelled": "បានបោះបង់។",
         "already_processed": "សំណើនេះត្រូវបានដំណើរការរួចហើយ។",
+        "test_mode_disabled": (
+            "🧪 មុខងារសាកល្បងសម្រាប់អ្នកគ្រប់គ្រងត្រូវបានបិទ។ កំណត់ "
+            "<code>ADMIN_TEST_MODE_ENABLED=true</code> ហើយចាប់ផ្ដើមបូតឡើងវិញ។"
+        ),
+        "test_mode_no_request": "🧪 រកមិនឃើញការទូទាត់ ការបញ្ចូលប្រាក់ ឬការសងប្រាក់សកម្មសម្រាប់សាកល្បងទេ។",
+        "test_mode_expired": "🧪 សំណើសាកល្បងនេះលែងសកម្ម ឬបានផុតកំណត់។",
+        "test_mode_refund_pending": ("🧪 សំណើសងប្រាក់ #{refund_id} កំពុងរង់ចាំ។ សូមដំណើរការ ឬបដិសេធវាជាមុន។"),
+        "test_order_success": (
+            "🧪 <b>របៀបសាកល្បង</b> — មិនបានបង់ប្រាក់តាមធនាគារទេ។ "
+            "ការបញ្ជាទិញ #{order_id} បានបញ្ចប់ ហើយស្តុកពិតត្រូវបានប្រើ។"
+        ),
+        "test_deposit_success": (
+            "🧪 <b>របៀបសាកល្បង</b> — មិនបានបង់ប្រាក់ ABA ទេ។ "
+            "ការបញ្ចូលប្រាក់ #{deposit_id} ត្រូវបានអនុម័ត ហើយបានបញ្ចូលសមតុល្យសាកល្បង {amount}។"
+        ),
+        "test_refund_success": (
+            "🧪 <b>របៀបសាកល្បង</b> — មិនបានផ្ទេរប្រាក់ ABA ទេ។ "
+            "ការសងប្រាក់ #{refund_id} ចំនួន {amount} ត្រូវបានសាកល្បងថាបានទូទាត់។\n"
+            "សមតុល្យដែលអាចប្រើបាន៖ <b>{balance}</b>"
+        ),
         "menu_shop": "🛍 ហាង",
         "menu_balance": "💰 សមតុល្យ",
         "menu_deposit": "➕ បញ្ចូលប្រាក់",

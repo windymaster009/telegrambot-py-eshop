@@ -315,6 +315,84 @@ class ShopService:
             raise AlreadyProcessed
         return order
 
+    async def complete_order_for_test(
+        self,
+        telegram_id: int,
+        order_id: int,
+        *,
+        reviewed_by: int,
+    ) -> Order:
+        async def operation(session: Any) -> Order | None:
+            document = await self.orders.find_one(
+                {
+                    "_id": order_id,
+                    "user_id": telegram_id,
+                    "status": OrderStatus.AWAITING_PAYMENT.value,
+                },
+                session=session,
+            )
+            if document is None:
+                return None
+
+            now = utc_now()
+            expires_at = self._datetime(document.get("expires_at"))
+            if expires_at is not None and expires_at <= now:
+                await self._release_stock(order_id, session=session)
+                await self.orders.update_one(
+                    {"_id": order_id, "status": OrderStatus.AWAITING_PAYMENT.value},
+                    {
+                        "$set": {
+                            "status": OrderStatus.CANCELLED.value,
+                            "admin_note": "[TEST] Order expired before simulation",
+                        }
+                    },
+                    session=session,
+                )
+                return None
+
+            stock_documents = await self.stock_items.find(
+                {"reserved_order_id": order_id, "sold_at": None}, session=session
+            ).to_list(length=None)
+            if len(stock_documents) != int(document["quantity"]):
+                raise NotEnoughStock
+            stock_update = await self.stock_items.update_many(
+                {"reserved_order_id": order_id, "sold_at": None},
+                {"$set": {"sold_at": now}},
+                session=session,
+            )
+            if stock_update.modified_count != int(document["quantity"]):
+                raise NotEnoughStock
+
+            updated = await self.orders.find_one_and_update(
+                {
+                    "_id": order_id,
+                    "user_id": telegram_id,
+                    "status": OrderStatus.AWAITING_PAYMENT.value,
+                },
+                {
+                    "$set": {
+                        "status": OrderStatus.COMPLETED.value,
+                        "payment_proof_file_id": None,
+                        "admin_note": (
+                            f"[TEST] Payment simulated by Telegram admin {reviewed_by}; "
+                            "no bank payment received"
+                        ),
+                        "expires_at": None,
+                        "completed_at": now,
+                    }
+                },
+                return_document=ReturnDocument.AFTER,
+                session=session,
+            )
+            if updated is None:
+                return None
+            return await self._load_order(order_id, session=session)
+
+        order = await self._in_transaction(operation)
+        if order is None:
+            raise AlreadyProcessed
+        return order
+
     async def list_orders(self, telegram_id: int, limit: int = 10) -> list[Order]:
         if await self.users.find_one({"_id": telegram_id}) is None:
             raise ShopError("User not found. Send /start first.")
@@ -391,6 +469,23 @@ class ShopService:
         if document is None:
             return None
         return await self._load_deposit(deposit_id)
+
+    async def pending_deposit_for_user(self, telegram_id: int) -> Deposit | None:
+        await self.expire_deposits(user_id=telegram_id)
+        document = await self.deposits.find_one(
+            {
+                "user_id": telegram_id,
+                "status": DepositStatus.AWAITING_PROOF.value,
+                "$or": [
+                    {"expires_at": None},
+                    {"expires_at": {"$gt": utc_now()}},
+                ],
+            },
+            sort=[("created_at", DESCENDING)],
+        )
+        if document is None:
+            return None
+        return await self._load_deposit(int(document["_id"]))
 
     async def submit_deposit_proof(
         self, telegram_id: int, deposit_id: int, file_id: str
@@ -675,6 +770,73 @@ class ShopService:
             raise AlreadyProcessed
         return deposit
 
+    async def approve_deposit_for_test(
+        self,
+        telegram_id: int,
+        deposit_id: int,
+        *,
+        reviewed_by: int,
+    ) -> Deposit:
+        await self.expire_deposits(user_id=telegram_id)
+
+        async def operation(session: Any) -> Deposit | None:
+            now = utc_now()
+            document = await self.deposits.find_one(
+                {
+                    "_id": deposit_id,
+                    "user_id": telegram_id,
+                    "status": DepositStatus.AWAITING_PROOF.value,
+                    "$or": [
+                        {"expires_at": None},
+                        {"expires_at": {"$gt": now}},
+                    ],
+                },
+                session=session,
+            )
+            if document is None:
+                return None
+
+            user_update = await self.users.update_one(
+                {"_id": telegram_id},
+                {
+                    "$inc": {"balance_cents": int(document["amount_cents"])},
+                    "$set": {"updated_at": now},
+                },
+                session=session,
+            )
+            if user_update.modified_count != 1:
+                raise ShopError("User not found")
+
+            updated = await self.deposits.find_one_and_update(
+                {
+                    "_id": deposit_id,
+                    "user_id": telegram_id,
+                    "status": DepositStatus.AWAITING_PROOF.value,
+                },
+                {
+                    "$set": {
+                        "status": DepositStatus.APPROVED.value,
+                        "payment_proof_file_id": None,
+                        "admin_note": (
+                            f"[TEST] Top-up simulated by Telegram admin {reviewed_by}; "
+                            "no ABA payment received"
+                        ),
+                        "reviewed_at": now,
+                    }
+                },
+                return_document=ReturnDocument.AFTER,
+                session=session,
+            )
+            if updated is None:
+                return None
+            await self._release_topup_slot(updated, session=session)
+            return await self._load_deposit(deposit_id, session=session)
+
+        deposit = await self._in_transaction(operation)
+        if deposit is None:
+            raise AlreadyProcessed
+        return deposit
+
     async def reject_deposit(self, deposit_id: int, note: str | None = None) -> Deposit:
         document = await self.deposits.find_one_and_update(
             {"_id": deposit_id, "status": DepositStatus.AWAITING_REVIEW.value},
@@ -765,6 +927,99 @@ class ShopService:
                 {"user_id": telegram_id, "status": RefundStatus.PENDING.value}
             )
             raise ActiveRefundExists(int(active["_id"]) if active else 0) from exc
+
+    async def complete_refund_for_test(
+        self,
+        telegram_id: int,
+        amount_cents: int,
+        *,
+        reviewed_by: int,
+        test_key: str,
+    ) -> RefundRequest:
+        if amount_cents <= 0:
+            raise ShopError("Refund amount must be positive")
+        if amount_cents > 99_999_900:
+            raise ShopError("Refund amount is too large")
+        cleaned_test_key = test_key.strip()
+        if not cleaned_test_key or len(cleaned_test_key) > 200:
+            raise ShopError("Invalid refund test key")
+
+        async def operation(session: Any) -> RefundRequest:
+            previous = await self.refunds.find_one(
+                {"test_key": cleaned_test_key},
+                session=session,
+            )
+            if previous is not None:
+                if (
+                    int(previous["user_id"]) != telegram_id
+                    or int(previous["amount_cents"]) != amount_cents
+                ):
+                    raise ShopError("Refund test key does not match this request")
+                return await self._load_refund(int(previous["_id"]), session=session)
+
+            existing = await self.refunds.find_one(
+                {"user_id": telegram_id, "status": RefundStatus.PENDING.value},
+                session=session,
+            )
+            if existing is not None:
+                raise ActiveRefundExists(int(existing["_id"]))
+
+            user_document = await self.users.find_one({"_id": telegram_id}, session=session)
+            if user_document is None:
+                raise ShopError("User not found. Send /start first.")
+            balance_cents = int(user_document.get("balance_cents", 0))
+            if balance_cents < amount_cents:
+                raise InsufficientBalance(balance_cents, amount_cents)
+
+            refund_id = (await self._next_ids("refunds", session=session))[0]
+            now = utc_now()
+            await self.refunds.insert_one(
+                {
+                    "_id": refund_id,
+                    "user_id": telegram_id,
+                    "amount_cents": amount_cents,
+                    "status": RefundStatus.PAID.value,
+                    "qr_file_id": "ADMIN_TEST_KEYWORD",
+                    "qr_file_type": "test",
+                    "test_key": cleaned_test_key,
+                    "admin_note": (
+                        f"[TEST] Refund simulated by Telegram admin {reviewed_by}; "
+                        "no ABA transfer sent"
+                    ),
+                    "reviewed_by": reviewed_by,
+                    "created_at": now,
+                    "reviewed_at": now,
+                },
+                session=session,
+            )
+
+            updated_user = await self.users.find_one_and_update(
+                {"_id": telegram_id, "balance_cents": {"$gte": amount_cents}},
+                {
+                    "$inc": {"balance_cents": -amount_cents},
+                    "$set": {"updated_at": now},
+                },
+                return_document=ReturnDocument.AFTER,
+                session=session,
+            )
+            if updated_user is None:
+                await self.refunds.delete_one({"_id": refund_id}, session=session)
+                current = await self.users.find_one({"_id": telegram_id}, session=session)
+                current_balance = int(current.get("balance_cents", 0)) if current else 0
+                raise InsufficientBalance(current_balance, amount_cents)
+            return await self._load_refund(refund_id, session=session)
+
+        try:
+            return await self._in_transaction(operation)
+        except DuplicateKeyError as exc:
+            previous = await self.refunds.find_one({"test_key": cleaned_test_key})
+            if (
+                previous is None
+                or int(previous["user_id"]) != telegram_id
+                or int(previous["amount_cents"]) != amount_cents
+            ):
+                raise ShopError("Refund test could not be completed") from exc
+            return await self._load_refund(int(previous["_id"]))
 
     async def get_user_refund(self, telegram_id: int, refund_id: int) -> RefundRequest | None:
         document = await self.refunds.find_one({"_id": refund_id, "user_id": telegram_id})

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from html import escape
+from secrets import token_urlsafe
 
 from aiogram import Bot, F, Router
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
@@ -419,7 +420,10 @@ async def receive_refund_amount(message: Message, state: FSMContext, service: Sh
         )
         return
     await state.set_state(CustomerState.awaiting_refund_qr)
-    await state.update_data(refund_amount_cents=amount_cents)
+    await state.update_data(
+        refund_amount_cents=amount_cents,
+        refund_test_key=token_urlsafe(18),
+    )
     await message.answer(tr(user.language, "refund_send_qr", amount=format_money(amount_cents)))
 
 

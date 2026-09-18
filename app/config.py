@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     payment_account_number: str = "000 000 000"
     payment_expiry_minutes: int = Field(default=30, ge=5, le=1440)
     topup_expiry_minutes: int = Field(default=15, ge=5, le=1440)
+    admin_test_mode_enabled: bool = False
 
     auto_topup_enabled: bool = False
     payment_check_bot_token: SecretStr | None = None

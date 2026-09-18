@@ -51,6 +51,16 @@ def test_payment_queue_expires_after_fifteen_minutes_by_default(monkeypatch) -> 
 
     assert settings.payment_expiry_minutes == 30
     assert settings.topup_expiry_minutes == 15
+    assert settings.admin_test_mode_enabled is False
+
+
+def test_admin_test_mode_can_be_explicitly_enabled(monkeypatch) -> None:
+    set_required_environment(monkeypatch)
+    monkeypatch.setenv("ADMIN_TEST_MODE_ENABLED", "true")
+
+    settings = Settings(_env_file=None)
+
+    assert settings.admin_test_mode_enabled is True
 
 
 def test_aba_listener_settings_are_normalized(monkeypatch) -> None:

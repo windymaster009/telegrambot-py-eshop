@@ -61,6 +61,12 @@ class Database:
             partialFilterExpression={"status": "pending"},
             name="one_pending_refund_per_user",
         )
+        await self.db.refunds.create_index(
+            "test_key",
+            unique=True,
+            sparse=True,
+            name="unique_refund_test_key",
+        )
 
         await self.db.payment_slots.create_index("release_at", expireAfterSeconds=0)
         await self.db.payment_events.create_index(

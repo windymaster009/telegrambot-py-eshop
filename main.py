@@ -33,6 +33,10 @@ async def main() -> None:
         format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     )
     settings = get_settings()
+    if settings.admin_test_mode_enabled:
+        logging.warning(
+            "ADMIN TEST MODE IS ENABLED: admin accounts can simulate payments without ABA"
+        )
     database = Database(settings)
     await database.connect()
     service = ShopService(
